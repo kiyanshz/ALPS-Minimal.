@@ -46,6 +46,30 @@ jobs:
           test -f extracted/ALPS-Minimal/settings.gradle || test -f extracted/ALPS-Minimal/settings.gradle.kts
           test -f extracted/ALPS-Minimal/app/build.gradle || test -f extracted/ALPS-Minimal/app/build.gradle.kts
 
+      - name: Align Kotlin JVM target with Java
+        shell: bash
+        run: |
+          if [ -f extracted/ALPS-Minimal/app/build.gradle ]; then
+            cat >> extracted/ALPS-Minimal/app/build.gradle <<'EOF'
+
+          // Keep Kotlin bytecode compatible with the app's Java 8 target.
+          tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+              kotlinOptions.jvmTarget = "1.8"
+          }
+          EOF
+          elif [ -f extracted/ALPS-Minimal/app/build.gradle.kts ]; then
+            cat >> extracted/ALPS-Minimal/app/build.gradle.kts <<'EOF'
+
+          // Keep Kotlin bytecode compatible with the app's Java 8 target.
+          tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+              kotlinOptions.jvmTarget = "1.8"
+          }
+          EOF
+          else
+            echo "App Gradle build file not found"
+            exit 1
+          fi
+
       - name: Build debug APK
         run: gradle -p extracted/ALPS-Minimal assembleDebug
 
