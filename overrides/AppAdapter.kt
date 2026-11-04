@@ -21,6 +21,8 @@ class AppAdapter(private val items: List<AppItem>, private val onClick: (AppItem
  override fun onBindViewHolder(holder: Holder, position: Int) {
   val item = items[position]
   holder.icon.setImageDrawable(item.icon)
+  holder.icon.scaleType = ImageView.ScaleType.FIT_CENTER
+  holder.icon.clipToOutline = true
   holder.label.text = item.label
   holder.itemView.setOnClickListener { onClick(item) }
   holder.itemView.setOnTouchListener { view, event ->
