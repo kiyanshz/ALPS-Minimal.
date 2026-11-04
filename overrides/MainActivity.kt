@@ -1,6 +1,9 @@
 package com.alps.minimal
 
-import android.app.Activity
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.asImageBitmap
 import android.Manifest
 import android.content.pm.PackageManager
 import android.location.Location
@@ -95,7 +98,7 @@ private class LiquidGlassWallpaperDrawable : android.graphics.drawable.Drawable(
 
 class MediaAccessService : NotificationListenerService()
 
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
     private val bg = Color.rgb(8, 10, 14)
     private val panel = Color.rgb(24, 28, 35)
     private val panel2 = Color.rgb(32, 38, 47)
@@ -119,6 +122,7 @@ class MainActivity : Activity() {
     private lateinit var homeCoverView: ImageView
     private lateinit var homePlayPauseButton: TextView
     private var activeController: MediaController? = null
+    private val composeNowPlayingState = mutableStateOf(NowPlaying())
     private var userSeeking = false
     private var lastDuration = 0L
     private var mapInitialized = false
@@ -281,380 +285,52 @@ class MainActivity : Activity() {
         (mapView.parent as? ViewGroup)?.removeView(mapView)
     }
 
-    // Premium two-tab dashboard: live music and live Neshan map.
     private fun showHome() {
-        showCarPlayDashboard()
+        dashboardTab = 1
+        musicScreenVisible = false
+        detachMapView()
+        handler.removeCallbacks(clockTick)
+        handler.removeCallbacks(mediaTick)
+
+        setContent {
+            CarPlayApp(
+                np = composeNowPlayingState.value,
+                onPlayPause = { togglePlayback() },
+                onNext = {
+                    activeController?.transportControls?.skipToNext()
+                    handler.postDelayed({ refreshMedia() }, 350)
+                },
+                onPrev = {
+                    activeController?.transportControls?.skipToPrevious()
+                    handler.postDelayed({ refreshMedia() }, 350)
+                },
+                onSeek = { fraction -> seekToFraction(fraction) },
+                onOpenMap = { openNeshan() },
+                mapFactory = { mapView },
+                onMapEvent = null
+            )
+        }
+
+        startLocationUpdates()
+        handler.post(mediaTick)
+    }
+
+    private fun launchMatchingApp(keywords: List<String>) {
+        val launch = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val matches = packageManager.queryIntentActivities(launch, 0)
+        val target = matches.firstOrNull { info ->
+            info.activityInfo.packageName != packageName &&
+                keywords.any { key ->
+                    info.loadLabel(packageManager).toString().contains(key, ignoreCase = true) ||
+                        info.activityInfo.packageName.contains(key, ignoreCase = true)
+                }
+        }
+        val intent = target?.let { packageManager.getLaunchIntentForPackage(it.activityInfo.packageName) }
+        if (intent != null) startActivity(intent) else showApps()
     }
 
     // Landscape-first CarPlay-inspired split dashboard: persistent side rail,
     // live navigation map and compact now-playing card on one screen.
-    private fun showCarPlayDashboard() {
-        dashboardTab = 1
-        musicScreenVisible = false
-        detachMapView()
-        stopLocationUpdates()
-        handler.removeCallbacks(clockTick)
-        handler.removeCallbacks(mediaTick)
-
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(10), dp(9), dp(14), dp(9))
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(8, 13, 22), Color.rgb(14, 21, 34), Color.rgb(7, 11, 19))
-            )
-        }
-
-        val rail = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            background = GradientDrawable().apply {
-                setColor(Color.argb(220, 23, 31, 45))
-                cornerRadius = dp(25).toFloat()
-                setStroke(dp(1), Color.argb(34, 255, 255, 255))
-            }
-            setPadding(dp(5), dp(8), dp(5), dp(8))
-        }
-        val logo = TextView(this).apply {
-            text = "A"
-            textSize = 23f
-            setTypeface(Typeface.DEFAULT, Typeface.BOLD)
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(74, 166, 255), Color.rgb(35, 92, 184))).apply {
-                cornerRadius = dp(16).toFloat()
-            }
-        }
-        rail.addView(logo, LinearLayout.LayoutParams(dp(48), dp(48)).apply { bottomMargin = dp(14) })
-
-        fun railItem(symbol: String, caption: String, selected: Boolean = false, click: () -> Unit) {
-            val item = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                background = if (selected) GradientDrawable().apply {
-                    setColor(Color.argb(72, 69, 153, 255))
-                    cornerRadius = dp(15).toFloat()
-                    setStroke(dp(1), Color.argb(105, 100, 177, 255))
-                } else rounded(Color.TRANSPARENT, 15)
-                isClickable = true
-                isFocusable = true
-                setOnClickListener { click() }
-            }
-            item.addView(TextView(this).apply {
-                text = symbol
-                textSize = 23f
-                gravity = Gravity.CENTER
-                setTextColor(if (selected) Color.rgb(133, 196, 255) else Color.rgb(205, 215, 231))
-            }, LinearLayout.LayoutParams(-1, dp(34)))
-            item.addView(TextView(this).apply {
-                text = caption
-                textSize = 8f
-                gravity = Gravity.CENTER
-                setTextColor(if (selected) Color.rgb(155, 205, 255) else Color.rgb(145, 157, 176))
-            }, LinearLayout.LayoutParams(-1, dp(16)))
-            rail.addView(item, LinearLayout.LayoutParams(dp(54), dp(58)).apply { bottomMargin = dp(7) })
-        }
-        railItem("⌂", "HOME", true) { showHome() }
-        railItem("▦", "APPS") { showApps() }
-        railItem("⌖", "MAP") { showMap() }
-        railItem("♫", "MUSIC") { showMusic() }
-        railItem("☎", "PHONE") { try { startActivity(Intent("android.intent.action.DIAL")) } catch (_: Exception) {} }
-        val railSpacer = View(this)
-        rail.addView(railSpacer, LinearLayout.LayoutParams(1, 0, 1f))
-        railItem("⚙", "SETTINGS") { openSettings() }
-        root.addView(rail, LinearLayout.LayoutParams(dp(66), -1).apply { rightMargin = dp(12) })
-
-        val main = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        val top = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(5), 0, dp(5), dp(9))
-        }
-        val heading = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        heading.addView(text("Good evening", 11f, Color.rgb(147, 164, 188)))
-        heading.addView(text("Your drive", 20f, white, true))
-        top.addView(heading, LinearLayout.LayoutParams(0, dp(45), 1f))
-        dateView = text(formatPersianDate(Date()), 13f, Color.rgb(190, 204, 224), true).apply { gravity = Gravity.CENTER }
-        top.addView(dateView, LinearLayout.LayoutParams(dp(150), dp(40)))
-        val clock = text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()), 23f, white, true)
-        clock.gravity = Gravity.CENTER
-        clockView = clock
-        top.addView(clock, LinearLayout.LayoutParams(dp(78), dp(42)))
-        main.addView(top)
-
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-
-        val mapPanel = FrameLayout(this).apply {
-            background = rounded(Color.rgb(19, 29, 43), 26)
-            clipToOutline = true
-            elevation = dp(4).toFloat()
-        }
-        dashboardMapFrame = mapPanel
-        mapView.isClickable = true
-        mapPanel.addView(mapView, FrameLayout.LayoutParams(-1, -1))
-        val mapHeader = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = GradientDrawable().apply {
-                setColor(Color.argb(218, 13, 22, 36))
-                cornerRadius = dp(15).toFloat()
-                setStroke(dp(1), Color.argb(45, 255, 255, 255))
-            }
-            setPadding(dp(13), dp(8), dp(13), dp(8))
-        }
-        mapHeader.addView(text("NESHAN  •  MAP", 10f, Color.rgb(139, 194, 255), true))
-        mapPanel.addView(mapHeader, FrameLayout.LayoutParams(-2, dp(42), Gravity.TOP or Gravity.START).apply {
-            leftMargin = dp(12); topMargin = dp(12)
-        })
-        val recenter = action("◎") {
-            lastLocation?.let { loc ->
-                mapView.getMapAsync { map ->
-                    map.cameraPosition = CameraPosition.Builder()
-                        .target(LatLng(loc.latitude, loc.longitude)).zoom(16.0).build()
-                }
-            } ?: startLocationUpdates()
-        }.apply { textSize = 21f; background = rounded(Color.argb(225, 16, 28, 46), 18) }
-        mapPanel.addView(recenter, FrameLayout.LayoutParams(dp(52), dp(52), Gravity.BOTTOM or Gravity.END).apply {
-            rightMargin = dp(14); bottomMargin = dp(14)
-        })
-        content.addView(mapPanel, LinearLayout.LayoutParams(0, -1, 1.28f).apply { rightMargin = dp(12) })
-
-        val mediaPanel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(31, 43, 62), Color.rgb(18, 26, 41))).apply {
-                cornerRadius = dp(26).toFloat()
-                setStroke(dp(1), Color.argb(48, 255, 255, 255))
-            }
-            setPadding(dp(15), dp(13), dp(15), dp(12))
-            elevation = dp(4).toFloat()
-        }
-
-        dashboardCover = ImageView(this).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            background = rounded(Color.rgb(45, 61, 84), 20)
-            clipToOutline = true
-            setImageDrawable(rounded(Color.rgb(45, 61, 84), 20))
-            elevation = dp(5).toFloat()
-        }
-        mediaPanel.addView(dashboardCover, LinearLayout.LayoutParams(dp(116), dp(116)).apply {
-            gravity = Gravity.CENTER
-            topMargin = dp(7); bottomMargin = dp(8)
-        })
-        homeTrackTitle = text("—", 15f, white, true).apply {
-            gravity = Gravity.CENTER
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        }
-        mediaPanel.addView(homeTrackTitle, LinearLayout.LayoutParams(-1, dp(27)))
-        homeTrackArtist = text("", 11f, Color.rgb(169, 180, 198)).apply {
-            gravity = Gravity.CENTER
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        }
-        mediaPanel.addView(homeTrackArtist, LinearLayout.LayoutParams(-1, dp(22)))
-
-        val times = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        dashboardElapsed = text("0:00", 10f, Color.rgb(165, 179, 200))
-        dashboardDuration = text("0:00", 10f, Color.rgb(165, 179, 200)).apply { gravity = Gravity.END }
-        times.addView(dashboardElapsed, LinearLayout.LayoutParams(0, dp(19), 1f))
-        times.addView(dashboardDuration, LinearLayout.LayoutParams(0, dp(19), 1f))
-        mediaPanel.addView(times)
-        dashboardSeek = SeekBar(this).apply {
-            max = 1000
-            progressTintList = android.content.res.ColorStateList.valueOf(Color.rgb(101, 176, 255))
-            thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onStartTrackingTouch(seekBar: SeekBar?) { userSeeking = true }
-                override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                    userSeeking = false
-                    if (lastDuration > 0) activeController?.transportControls?.seekTo((progress / 1000.0 * lastDuration).toLong())
-                }
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    if (fromUser && lastDuration > 0) dashboardElapsed?.text = formatTime((progress / 1000.0 * lastDuration).toLong())
-                }
-            })
-        }
-        mediaPanel.addView(dashboardSeek, LinearLayout.LayoutParams(-1, dp(28)))
-
-        val controls = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        controls.addView(action("⏮") { activeController?.transportControls?.skipToPrevious() },
-            LinearLayout.LayoutParams(0, dp(45), 1f).apply { rightMargin = dp(5) })
-        dashboardPlayButton = action("▶") { togglePlayback() }.apply {
-            textSize = 22f
-            background = GradientDrawable().apply {
-                setColor(Color.rgb(77, 151, 235))
-                cornerRadius = dp(16).toFloat()
-            }
-        }
-        homePlayPauseButton = dashboardPlayButton!!
-        homeCoverView = dashboardCover!!
-        controls.addView(dashboardPlayButton, LinearLayout.LayoutParams(0, dp(48), 1.25f))
-        controls.addView(action("⏭") { activeController?.transportControls?.skipToNext() },
-            LinearLayout.LayoutParams(0, dp(45), 1f).apply { leftMargin = dp(5) })
-        mediaPanel.addView(controls, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(4) })
-
-        val openPlayer = action("OPEN MUSIC PLAYER  ↗") { showMusic() }
-        openPlayer.background = rounded(Color.argb(55, 103, 168, 255), 14)
-        mediaPanel.addView(openPlayer, LinearLayout.LayoutParams(-1, dp(39)).apply { topMargin = dp(7) })
-        content.addView(mediaPanel, LinearLayout.LayoutParams(0, -1, 0.82f))
-
-        main.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
-        main.addView(text("ALPS COCKPIT     •     MAP & MEDIA", 9f, Color.rgb(105, 122, 147), true).apply {
-            gravity = Gravity.CENTER
-        }, LinearLayout.LayoutParams(-1, dp(19)).apply { topMargin = dp(5) })
-        root.addView(main, LinearLayout.LayoutParams(0, -1, 1f))
-
-        setContentView(root)
-        handler.post(clockTick)
-        refreshMedia()
-        handler.post(mediaTick)
-        startLocationUpdates()
-    }
-
-    private fun showDashboard(tab: Int) {
-        dashboardTab = tab.coerceIn(0, 1)
-        musicScreenVisible = false
-        handler.removeCallbacks(clockTick)
-        detachMapView()
-
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(22), dp(12), dp(22), dp(12))
-            background = wallpaperDrawable()
-        }
-
-        val top = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val brand = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        brand.addView(text("ALPS", 24f, white, true))
-        brand.addView(text("DRIVE  •  SMART COCKPIT", 9f, muted, true))
-        top.addView(brand, LinearLayout.LayoutParams(0, dp(54), 1f))
-        val clock = text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()), 22f, white, true)
-        clockView = clock
-        clock.gravity = Gravity.CENTER
-        top.addView(clock, LinearLayout.LayoutParams(dp(90), dp(54)))
-        root.addView(top)
-
-        val tabs = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            background = rounded(Color.argb(105, 255, 255, 255), 24)
-            setPadding(dp(5), dp(5), dp(5), dp(5))
-        }
-        val musicTab = action("♫   MUSIC") { showDashboard(0) }
-        val mapTab = action("⌖   MAP") { showMap() }
-        musicTab.background = rounded(if (dashboardTab == 0) Color.rgb(75, 119, 210) else Color.TRANSPARENT, 20)
-        mapTab.background = rounded(if (dashboardTab == 1) Color.rgb(75, 119, 210) else Color.TRANSPARENT, 20)
-        tabs.addView(musicTab, LinearLayout.LayoutParams(0, dp(48), 1f))
-        tabs.addView(mapTab, LinearLayout.LayoutParams(0, dp(48), 1f))
-        val tabsParams = LinearLayout.LayoutParams(-1, dp(58))
-        tabsParams.topMargin = dp(10)
-        root.addView(tabs, tabsParams)
-
-        if (dashboardTab == 0) {
-            val musicPanel = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                background = GradientDrawable(
-                    GradientDrawable.Orientation.TL_BR,
-                    intArrayOf(Color.argb(220, 40, 54, 84), Color.argb(220, 20, 27, 46))
-                ).apply { cornerRadius = dp(30).toFloat(); setStroke(dp(1), Color.argb(80,255,255,255)) }
-                setPadding(dp(22), dp(18), dp(22), dp(12))
-            }
-            val eyebrow = text("NOW PLAYING", 10f, Color.rgb(170, 199, 255), true)
-            eyebrow.gravity = Gravity.CENTER
-            musicPanel.addView(eyebrow, LinearLayout.LayoutParams(-1, dp(24)))
-            dashboardCover = ImageView(this).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
-                background = rounded(Color.rgb(47, 59, 82), 26)
-                clipToOutline = true
-                setImageDrawable(rounded(Color.rgb(47, 59, 82), 26))
-                elevation = dp(10).toFloat()
-            }
-            musicPanel.addView(dashboardCover, LinearLayout.LayoutParams(dp(180), 0, 1f).apply {
-                gravity = Gravity.CENTER
-                topMargin = dp(8); bottomMargin = dp(12)
-            })
-            homeTrackTitle = text("در حال دریافت اطلاعات موزیک…", 20f, white, true).apply {
-                gravity = Gravity.CENTER; maxLines = 1
-            }
-            musicPanel.addView(homeTrackTitle, LinearLayout.LayoutParams(-1, dp(34)))
-            homeTrackArtist = text("پخش‌کننده موسیقی را اجرا کن", 13f, muted).apply { gravity = Gravity.CENTER }
-            musicPanel.addView(homeTrackArtist, LinearLayout.LayoutParams(-1, dp(26)))
-
-            val timeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            dashboardElapsed = text("0:00", 11f, muted)
-            dashboardDuration = text("0:00", 11f, muted).apply { gravity = Gravity.END }
-            timeRow.addView(dashboardElapsed, LinearLayout.LayoutParams(0, dp(22), 1f))
-            timeRow.addView(dashboardDuration, LinearLayout.LayoutParams(0, dp(22), 1f))
-            musicPanel.addView(timeRow)
-            dashboardSeek = SeekBar(this).apply {
-                max = 1000
-                progressTintList = android.content.res.ColorStateList.valueOf(Color.rgb(139, 183, 255))
-                thumbTintList = android.content.res.ColorStateList.valueOf(white)
-                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                    override fun onStartTrackingTouch(seekBar: SeekBar?) { userSeeking = true }
-                    override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                        userSeeking = false
-                        if (lastDuration > 0) activeController?.transportControls?.seekTo((progress / 1000.0 * lastDuration).toLong())
-                    }
-                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                        if (fromUser && lastDuration > 0) dashboardElapsed?.text = formatTime((progress / 1000.0 * lastDuration).toLong())
-                    }
-                })
-            }
-            musicPanel.addView(dashboardSeek, LinearLayout.LayoutParams(-1, dp(30)))
-            val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-            controls.addView(action("⏮") { activeController?.transportControls?.skipToPrevious() }, LinearLayout.LayoutParams(dp(58), dp(48)).apply { rightMargin = dp(10) })
-            dashboardPlayButton = action("▶") { togglePlayback() }
-            homePlayPauseButton = dashboardPlayButton!!
-            homeCoverView = dashboardCover!!
-            controls.addView(dashboardPlayButton, LinearLayout.LayoutParams(dp(78), dp(52)))
-            controls.addView(action("⏭") { activeController?.transportControls?.skipToNext() }, LinearLayout.LayoutParams(dp(58), dp(48)).apply { leftMargin = dp(10) })
-            musicPanel.addView(controls)
-            root.addView(musicPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(12); bottomMargin = dp(10) })
-            root.addView(action("APPS") { showApps() }, LinearLayout.LayoutParams(dp(92), dp(42)))
-            refreshMedia()
-            handler.removeCallbacks(mediaTick)
-            handler.post(mediaTick)
-            stopLocationUpdates()
-        } else {
-            val mapPanel = FrameLayout(this).apply {
-                background = rounded(Color.rgb(20, 29, 46), 28)
-                clipToOutline = true
-            }
-            dashboardMapFrame = mapPanel
-            mapView.isClickable = true
-            mapPanel.addView(mapView, FrameLayout.LayoutParams(-1, -1))
-            root.addView(mapPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(12); bottomMargin = dp(10) })
-            val footer = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            footer.addView(action("APPS") { showApps() }, LinearLayout.LayoutParams(dp(92), dp(42)))
-            footer.addView(View(this), LinearLayout.LayoutParams(0, dp(42), 1f))
-            footer.addView(action("RECENTER") { lastLocation?.let { loc ->
-                mapView.getMapAsync { map -> map.cameraPosition = CameraPosition.Builder().target(LatLng(loc.latitude, loc.longitude)).zoom(16.0).build() }
-            } }, LinearLayout.LayoutParams(dp(110), dp(42)))
-            root.addView(footer)
-            handler.removeCallbacks(mediaTick)
-            startLocationUpdates()
-        }
-        setContentView(root)
-        handler.removeCallbacks(clockTick)
-        handler.post(clockTick)
-        if (dashboardTab == 0) refreshMedia()
-    }
-
     private fun startLocationUpdates() {
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
             checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -688,7 +364,7 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 710 && dashboardTab == 1) {
             if (grantResults.any { it == PackageManager.PERMISSION_GRANTED }) startLocationUpdates()
@@ -696,7 +372,6 @@ class MainActivity : Activity() {
     }
 
     private fun showMap() {
-        showDashboard(1)
         openNeshan()
     }
 
@@ -772,11 +447,9 @@ class MainActivity : Activity() {
         val previous = action("⏮") { activeController?.transportControls?.skipToPrevious(); handler.postDelayed({ refreshMedia() }, 350) }
         val playPause = action("▶") { togglePlayback() }
         playPauseButton = playPause
-        val stop = action("■") { activeController?.transportControls?.stop(); handler.postDelayed({ refreshMedia() }, 350) }
         val next = action("⏭") { activeController?.transportControls?.skipToNext(); handler.postDelayed({ refreshMedia() }, 350) }
         controls.addView(previous, LinearLayout.LayoutParams(0, dp(58), 1f).apply { rightMargin = dp(5) })
         controls.addView(playPause, LinearLayout.LayoutParams(0, dp(64), 1.2f).apply { leftMargin = dp(5); rightMargin = dp(5) })
-        controls.addView(stop, LinearLayout.LayoutParams(0, dp(58), 1f).apply { leftMargin = dp(5); rightMargin = dp(5) })
         controls.addView(next, LinearLayout.LayoutParams(0, dp(58), 1f).apply { leftMargin = dp(5) })
         root.addView(controls)
 
@@ -794,6 +467,7 @@ class MainActivity : Activity() {
     private fun refreshMedia() {
         if (!notificationAccessEnabled()) {
             activeController = null
+            composeNowPlayingState.value = NowPlaying()
             dashboardSeek?.isEnabled = false
             if (::seekBar.isInitialized) seekBar.isEnabled = false
             if (::trackTitle.isInitialized) {
@@ -834,6 +508,14 @@ class MainActivity : Activity() {
             val playing = selected?.playbackState?.state == PlaybackState.STATE_PLAYING
 
             lastDuration = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
+            val currentPosition = currentPlaybackPosition(selected?.playbackState)
+            composeNowPlayingState.value = NowPlaying(
+                title = title,
+                artist = artist,
+                art = art?.asImageBitmap(),
+                isPlaying = playing,
+                progress = if (lastDuration > 0L) (currentPosition.toFloat() / lastDuration.toFloat()).coerceIn(0f, 1f) else 0f
+            )
             if (::homeTrackTitle.isInitialized) {
                 homeTrackTitle.text = title
                 homeTrackArtist.text = artist
@@ -865,6 +547,7 @@ class MainActivity : Activity() {
             }
         } catch (_: SecurityException) {
             activeController = null
+            composeNowPlayingState.value = NowPlaying()
             if (::trackTitle.isInitialized) {
                 trackTitle.text = "—"
                 trackArtist.text = ""
@@ -889,6 +572,14 @@ class MainActivity : Activity() {
             seekBar.progress = 0
         }
         elapsedView.text = formatTime(position)
+    }
+
+    private fun seekToFraction(fraction: Float) {
+        val duration = lastDuration
+        val controller = activeController ?: return
+        if (duration <= 0L) return
+        controller.transportControls.seekTo((duration * fraction.coerceIn(0f, 1f)).toLong())
+        handler.postDelayed({ refreshMedia() }, 200)
     }
 
     private fun togglePlayback() {
