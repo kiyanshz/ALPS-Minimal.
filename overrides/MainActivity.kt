@@ -10,6 +10,12 @@ import android.os.Build
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.PixelFormat
+import android.graphics.RectF
+import android.graphics.RadialGradient
+import android.graphics.Shader
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -31,11 +37,58 @@ import androidx.recyclerview.widget.RecyclerView
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.annotations.Marker
+import org.maplibre.android.annotations.MarkerOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+
+private class LiquidGlassWallpaperDrawable : android.graphics.drawable.Drawable() {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    override fun draw(canvas: Canvas) {
+        val b = bounds
+        val w = b.width().toFloat()
+        val h = b.height().toFloat()
+        if (w <= 0f || h <= 0f) return
+        paint.shader = android.graphics.LinearGradient(0f, 0f, w, h,
+            intArrayOf(Color.rgb(5, 10, 27), Color.rgb(19, 28, 58), Color.rgb(7, 12, 29)),
+            null, Shader.TileMode.CLAMP)
+        canvas.drawRect(b, paint)
+        paint.shader = RadialGradient(w * 0.22f, h * 0.22f, w * 0.72f,
+            intArrayOf(0xB04A83E8.toInt(), 0x664A83E8, 0x004A83E8), null, Shader.TileMode.CLAMP)
+        canvas.save()
+        canvas.rotate(-24f, w * 0.22f, h * 0.22f)
+        canvas.drawOval(RectF(-w * 0.25f, h * 0.02f, w * 0.82f, h * 0.56f), paint)
+        canvas.restore()
+        paint.shader = RadialGradient(w * 0.82f, h * 0.76f, w * 0.66f,
+            intArrayOf(0xA04CC7D9.toInt(), 0x554CC7D9, 0x004CC7D9), null, Shader.TileMode.CLAMP)
+        canvas.save()
+        canvas.rotate(28f, w * 0.82f, h * 0.76f)
+        canvas.drawOval(RectF(w * 0.35f, h * 0.48f, w * 1.28f, h * 1.08f), paint)
+        canvas.restore()
+        paint.shader = RadialGradient(w * 0.72f, h * 0.12f, w * 0.38f,
+            intArrayOf(0x887C67D9.toInt(), 0x337C67D9, 0x007C67D9), null, Shader.TileMode.CLAMP)
+        canvas.drawCircle(w * 0.72f, h * 0.12f, w * 0.38f, paint)
+        paint.shader = null
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 1.2f
+        paint.color = 0x35FFFFFF
+        canvas.save()
+        canvas.rotate(-18f, w * 0.55f, h * 0.48f)
+        canvas.drawRoundRect(RectF(w * 0.05f, h * 0.18f, w * 0.95f, h * 0.72f), h * 0.22f, h * 0.22f, paint)
+        canvas.restore()
+        paint.style = Paint.Style.FILL
+        paint.color = Color.WHITE
+        paint.alpha = 255
+    }
+    override fun setAlpha(alpha: Int) { paint.alpha = alpha; invalidateSelf() }
+    override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) { paint.colorFilter = colorFilter; invalidateSelf() }
+    @Deprecated("Deprecated in Android")
+    override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
+}
 
 class MediaAccessService : NotificationListenerService()
 
@@ -64,6 +117,8 @@ class MainActivity : Activity() {
     private var userSeeking = false
     private var lastDuration = 0L
     private var mapInitialized = false
+    private var userMarker: Marker? = null
+    private var hasCenteredOnUser = false
     private var dashboardTab = 0
     private var locationManager: LocationManager? = null
     private var lastLocation: Location? = null
@@ -81,10 +136,13 @@ class MainActivity : Activity() {
             if (dashboardTab == 1 && mapInitialized) {
                 try {
                     mapView.getMapAsync { liveMap ->
-                        liveMap.cameraPosition = CameraPosition.Builder()
-                            .target(LatLng(location.latitude, location.longitude))
-                            .zoom(16.0)
-                            .build()
+                        val point = LatLng(location.latitude, location.longitude)
+                        try { userMarker?.let { liveMap.removeMarker(it) } } catch (_: Exception) {}
+                        userMarker = liveMap.addMarker(MarkerOptions().position(point).title("موقعیت فعلی"))
+                        if (!hasCenteredOnUser) {
+                            liveMap.cameraPosition = CameraPosition.Builder().target(point).zoom(16.0).build()
+                            hasCenteredOnUser = true
+                        }
                     }
                 } catch (_: Exception) {}
             }
@@ -226,10 +284,7 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(22), dp(12), dp(22), dp(12))
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(9, 17, 39), Color.rgb(26, 30, 58), Color.rgb(8, 12, 25))
-            )
+            background = LiquidGlassWallpaperDrawable()
         }
 
         val top = LinearLayout(this).apply {
@@ -326,7 +381,11 @@ class MainActivity : Activity() {
             val access = action("فعال‌سازی دسترسی رسانه") {
                 startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
             }
-            root.addView(access, LinearLayout.LayoutParams(-1, dp(42)))
+            val musicFooter = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            musicFooter.addView(action("APPS") { showApps() }, LinearLayout.LayoutParams(dp(92), dp(42)))
+            musicFooter.addView(text("ALPS  •  MUSIC", 11f, muted, true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(0, dp(42), 1f))
+            musicFooter.addView(access, LinearLayout.LayoutParams(dp(150), dp(42)))
+            root.addView(musicFooter)
             refreshMedia()
             handler.removeCallbacks(mediaTick)
             handler.post(mediaTick)
@@ -621,8 +680,9 @@ class MainActivity : Activity() {
         handler.removeCallbacks(mediaTick)
         detachMapView()
         setContentView(R.layout.activity_apps)
+        findViewById<View>(R.id.appsRoot).background = LiquidGlassWallpaperDrawable()
         val grid = findViewById<RecyclerView>(R.id.appGrid)
-        grid.layoutManager = GridLayoutManager(this, 6)
+        grid.layoutManager = GridLayoutManager(this, 5)
         grid.adapter = AppAdapter(loadApps()) { app ->
             packageManager.getLaunchIntentForPackage(app.packageName)?.let { startActivity(it) }
         }
@@ -632,6 +692,7 @@ class MainActivity : Activity() {
             startActivity(Intent("android.intent.action.DIAL"))
         }
         findViewById<View>(R.id.dockSettings).setOnClickListener { openSettings() }
+        findViewById<View>(R.id.dockHome).setOnClickListener { showHome() }
     }
 
     private fun loadApps(): List<AppItem> {
