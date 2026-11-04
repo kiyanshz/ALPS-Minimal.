@@ -20,6 +20,8 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
+import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
@@ -471,42 +473,29 @@ class MainActivity : Activity() {
     }
 
     private fun showApps() {
-        detachMapView()
         handler.removeCallbacks(clockTick)
-        val page = base()
-        page.addView(header("APPLICATIONS", true))
-        val scroll = ScrollView(this)
-        val grid = GridLayout(this).apply { columnCount = 4; useDefaultMargins = true }
-        val pm = packageManager
-        val apps = pm.getInstalledApplications(0)
-            .filter { pm.getLaunchIntentForPackage(it.packageName) != null && it.packageName != packageName }
-            .sortedBy { pm.getApplicationLabel(it).toString().lowercase() }
-        apps.forEach { info ->
-            val item = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                setPadding(dp(4), dp(10), dp(4), dp(10))
-            }
-            val icon = ImageView(this).apply {
-                setImageDrawable(pm.getApplicationIcon(info))
-                scaleType = ImageView.ScaleType.FIT_CENTER
-            }
-            item.addView(icon, LinearLayout.LayoutParams(dp(42), dp(42)))
-            item.addView(text(pm.getApplicationLabel(info).toString(), 11f, white).apply {
-                gravity = Gravity.CENTER
-                maxLines = 2
-            }, LinearLayout.LayoutParams(-1, dp(38)))
-            item.setOnClickListener { pm.getLaunchIntentForPackage(info.packageName)?.let { startActivity(it) } }
-            grid.addView(item, GridLayout.LayoutParams().apply {
-                width = 0
-                height = dp(94)
-                columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-            })
+        handler.removeCallbacks(mediaTick)
+        detachMapView()
+        setContentView(R.layout.activity_apps)
+        val grid = findViewById<RecyclerView>(R.id.appGrid)
+        grid.layoutManager = GridLayoutManager(this, 6)
+        grid.adapter = AppAdapter(loadApps()) { app ->
+            packageManager.getLaunchIntentForPackage(app.packageName)?.let { startActivity(it) }
         }
-        scroll.addView(grid)
-        page.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        addDock(page)
-        setContentView(page)
+        findViewById<View>(R.id.dockMaps).setOnClickListener { showMap() }
+        findViewById<View>(R.id.dockMusic).setOnClickListener { showMusic() }
+        findViewById<View>(R.id.dockPhone).setOnClickListener {
+            startActivity(Intent("android.intent.action.DIAL"))
+        }
+        findViewById<View>(R.id.dockSettings).setOnClickListener { openSettings() }
+    }
+
+    private fun loadApps(): List<AppItem> {
+        val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        return packageManager.queryIntentActivities(launcher, 0)
+            .filter { it.activityInfo.packageName != packageName }
+            .map { AppItem(it.loadLabel(packageManager).toString(), it.loadIcon(packageManager), it.activityInfo.packageName) }
+            .sortedBy { it.label.lowercase(Locale.getDefault()) }
     }
 
     private fun openSettings() {
