@@ -282,10 +282,12 @@ class MainActivity : Activity() {
         val previous = action("⏮") { activeController?.transportControls?.skipToPrevious(); handler.postDelayed({ refreshMedia() }, 350) }
         val playPause = action("▶") { togglePlayback() }
         playPauseButton = playPause
+        val stop = action("■") { activeController?.transportControls?.stop(); handler.postDelayed({ refreshMedia() }, 350) }
         val next = action("⏭") { activeController?.transportControls?.skipToNext(); handler.postDelayed({ refreshMedia() }, 350) }
-        controls.addView(previous, LinearLayout.LayoutParams(dp(66), dp(58)).apply { rightMargin = dp(16) })
-        controls.addView(playPause, LinearLayout.LayoutParams(dp(82), dp(64)))
-        controls.addView(next, LinearLayout.LayoutParams(dp(66), dp(58)).apply { leftMargin = dp(16) })
+        controls.addView(previous, LinearLayout.LayoutParams(0, dp(58), 1f).apply { rightMargin = dp(5) })
+        controls.addView(playPause, LinearLayout.LayoutParams(0, dp(64), 1.2f).apply { leftMargin = dp(5); rightMargin = dp(5) })
+        controls.addView(stop, LinearLayout.LayoutParams(0, dp(58), 1f).apply { leftMargin = dp(5); rightMargin = dp(5) })
+        controls.addView(next, LinearLayout.LayoutParams(0, dp(58), 1f).apply { leftMargin = dp(5) })
         root.addView(controls)
 
         val accessButton = action("فعال‌سازی دسترسی موزیک") {
