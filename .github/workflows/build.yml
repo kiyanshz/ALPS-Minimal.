@@ -37,7 +37,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.2'
+          gradle-version: '8.11.1'
 
       - name: Extract project
         run: |
@@ -45,6 +45,14 @@ jobs:
           unzip -q ALPS-Minimal-source-v0.1.zip -d extracted
           test -f extracted/ALPS-Minimal/settings.gradle || test -f extracted/ALPS-Minimal/settings.gradle.kts
           test -f extracted/ALPS-Minimal/app/build.gradle || test -f extracted/ALPS-Minimal/app/build.gradle.kts
+
+      - name: Align Kotlin toolchain with Neshan SDK
+        shell: bash
+        run: |
+          # Neshan MapLibre 13.4.1 uses Kotlin 2.2 metadata.
+          find extracted/ALPS-Minimal -type f \\( -name '*.gradle' -o -name '*.gradle.kts' \\) -print0 | while IFS= read -r -d '' file; do
+            sed -i 's/1\\.9\\.0/2.2.10/g' "$file"
+          done
 
       - name: Apply app source updates
         run: |
