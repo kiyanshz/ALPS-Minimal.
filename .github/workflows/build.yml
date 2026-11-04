@@ -51,14 +51,29 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+
           root = Path("extracted/ALPS-Minimal")
-          files = list(root.rglob("*.gradle")) + list(root.rglob("*.gradle.kts"))
+          suffixes = {".gradle", ".kts", ".toml"}
+          files = [p for p in root.rglob("*") if p.is_file() and
+                   (p.name.endswith(".gradle.kts") or p.suffix in suffixes)]
+
+          changed = []
           for path in files:
               content = path.read_text()
               updated = content.replace("1.9.0", "2.2.10")
               if updated != content:
                   path.write_text(updated)
-                  print(f"Updated Kotlin version in {path}")
+                  changed.append(str(path))
+
+          for path in changed:
+              print(f"Updated Kotlin version in {path}")
+
+          if not changed:
+              print("No literal 1.9.0 found in Gradle/TOML files; checking version declarations:")
+              for path in files:
+                  for number, line in enumerate(path.read_text().splitlines(), 1):
+                      if "kotlin" in line.lower() or "1.9.0" in line:
+                          print(f"{path}:{number}: {line.strip()}")
           PY
 
       - name: Apply app source updates
