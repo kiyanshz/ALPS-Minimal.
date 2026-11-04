@@ -26,6 +26,7 @@ import android.media.session.PlaybackState
 import android.media.session.MediaSessionManager
 import android.os.Bundle
 import android.os.Handler
+import android.os.SystemClock
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.view.Gravity
@@ -39,6 +40,7 @@ import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.annotations.Marker
 import org.maplibre.android.annotations.MarkerOptions
+import org.maplibre.android.annotations.IconFactory
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import java.text.SimpleDateFormat
@@ -138,7 +140,8 @@ class MainActivity : Activity() {
                     mapView.getMapAsync { liveMap ->
                         val point = LatLng(location.latitude, location.longitude)
                         try { userMarker?.let { liveMap.removeMarker(it) } } catch (_: Exception) {}
-                        userMarker = liveMap.addMarker(MarkerOptions().position(point).title("موقعیت فعلی"))
+                        val markerIcon = IconFactory.getInstance(this@MainActivity).fromBitmap(createLocationBitmap())
+                        userMarker = liveMap.addMarker(MarkerOptions().position(point).icon(markerIcon).title("موقعیت فعلی"))
                         if (!hasCenteredOnUser) {
                             liveMap.cameraPosition = CameraPosition.Builder().target(point).zoom(16.0).build()
                             hasCenteredOnUser = true
@@ -615,7 +618,7 @@ class MainActivity : Activity() {
                 }
                 dashboardPlayButton?.text = if (playing) "Ⅱ" else "▶"
                 dashboardCover?.let { if (art != null) it.setImageDrawable(BitmapDrawable(resources, art)) else it.setImageDrawable(rounded(panel2, 24)) }
-                val positionNow = selected?.playbackState?.position ?: 0L
+                val positionNow = currentPlaybackPosition(selected?.playbackState)
                 dashboardElapsed?.text = formatTime(positionNow)
                 dashboardDuration?.text = formatTime(metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L)
                 if (!userSeeking) dashboardSeek?.progress = if (lastDuration > 0) ((positionNow.toDouble() / lastDuration) * 1000.0).toInt().coerceIn(0,1000) else 0
@@ -652,7 +655,7 @@ class MainActivity : Activity() {
     private fun updatePosition() {
         if (!::seekBar.isInitialized || userSeeking) return
         val state = activeController?.playbackState
-        val position = state?.position ?: 0L
+        val position = currentPlaybackPosition(state)
         if (lastDuration > 0) {
             seekBar.progress = ((position.toDouble() / lastDuration) * 1000.0).toInt().coerceIn(0, 1000)
         } else {
@@ -667,6 +670,35 @@ class MainActivity : Activity() {
         if (state == PlaybackState.STATE_PLAYING) controller.transportControls.pause()
         else controller.transportControls.play()
         handler.postDelayed({ refreshMedia() }, 250)
+    }
+
+
+    private fun currentPlaybackPosition(state: PlaybackState?): Long {
+        if (state == null) return 0L
+        var position = state.position
+        if (state.state == PlaybackState.STATE_PLAYING && state.lastPositionUpdateTime > 0L) {
+            val elapsed = SystemClock.elapsedRealtime() - state.lastPositionUpdateTime
+            if (elapsed > 0L) position += (elapsed * state.playbackSpeed).toLong()
+        }
+        return position.coerceAtLeast(0L).let { if (lastDuration > 0L) it.coerceAtMost(lastDuration) else it }
+    }
+
+    private fun createLocationBitmap(): Bitmap {
+        val size = dp(44)
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val cx = size / 2f
+        val cy = size / 2f
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        paint.color = 0x443B82F6
+        canvas.drawCircle(cx, cy, size * 0.47f, paint)
+        paint.color = Color.WHITE
+        paint.setShadowLayer(dp(2).toFloat(), 0f, dp(1).toFloat(), 0x66000000)
+        canvas.drawCircle(cx, cy, size * 0.25f, paint)
+        paint.clearShadowLayer()
+        paint.color = Color.rgb(35, 117, 245)
+        canvas.drawCircle(cx, cy, size * 0.19f, paint)
+        return bitmap
     }
 
     private fun formatTime(milliseconds: Long): String {
