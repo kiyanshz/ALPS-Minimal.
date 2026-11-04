@@ -1,1 +1,10 @@
-<resources></resources>
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="cp_bg_top">#0B0F1A</color>
+    <color name="cp_bg_bottom">#1B2540</color>
+    <color name="cp_dock">#CC11151F</color>
+    <color name="cp_icon_bg">#2A3042</color>
+    <color name="cp_text">#FFFFFF</color>
+    <color name="cp_text_dim">#99FFFFFF</color>
+    <color name="cp_ripple">#33FFFFFF</color>
+</resources>
