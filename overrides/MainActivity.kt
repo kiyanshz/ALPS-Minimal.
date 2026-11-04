@@ -80,7 +80,7 @@ class MainActivity : Activity() {
             lastLocation = location
             if (dashboardTab == 1 && mapInitialized) {
                 try {
-                    val map = mapView.getMapAsync { liveMap ->
+                    mapView.getMapAsync { liveMap ->
                         liveMap.cameraPosition = CameraPosition.Builder()
                             .target(LatLng(location.latitude, location.longitude))
                             .zoom(16.0)
@@ -122,9 +122,10 @@ class MainActivity : Activity() {
         mapView.onCreate(savedInstanceState)
         mapView.getMapAsync { map ->
             map.setStyle(Style.Builder().fromUri("https://static.neshan.org/sdk/maplibre/styles/light.json"))
+            val initial = lastLocation
             map.cameraPosition = CameraPosition.Builder()
-                .target(LatLng(35.6892, 51.3890))
-                .zoom(11.0)
+                .target(if (initial != null) LatLng(initial.latitude, initial.longitude) else LatLng(35.6892, 51.3890))
+                .zoom(if (initial != null) 16.0 else 11.0)
                 .build()
             mapInitialized = true
         }
@@ -310,6 +311,8 @@ class MainActivity : Activity() {
             val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
             controls.addView(action("⏮") { activeController?.transportControls?.skipToPrevious() }, LinearLayout.LayoutParams(dp(58), dp(48)).apply { rightMargin = dp(10) })
             dashboardPlayButton = action("▶") { togglePlayback() }
+            homePlayPauseButton = dashboardPlayButton!!
+            homeCoverView = dashboardCover!!
             controls.addView(dashboardPlayButton, LinearLayout.LayoutParams(dp(78), dp(52)))
             controls.addView(action("⏭") { activeController?.transportControls?.skipToNext() }, LinearLayout.LayoutParams(dp(58), dp(48)).apply { leftMargin = dp(10) })
             musicPanel.addView(controls)
@@ -500,8 +503,10 @@ class MainActivity : Activity() {
             if (::homeTrackTitle.isInitialized) {
                 homeTrackTitle.text = "دسترسی موزیک فعال نیست"
                 homeTrackArtist.text = "برای کنترل، دسترسی را فعال کن"
-                homePlayPauseButton.text = "▶"
-                homeCoverView.setImageDrawable(rounded(panel2, 10))
+                dashboardPlayButton?.text = "▶"
+                dashboardCover?.setImageDrawable(rounded(panel2, 24))
+                if (::homePlayPauseButton.isInitialized) homePlayPauseButton.text = "▶"
+                if (::homeCoverView.isInitialized) homeCoverView.setImageDrawable(rounded(panel2, 10))
             }
             return
         }
@@ -524,6 +529,7 @@ class MainActivity : Activity() {
                 ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
             val playing = selected?.playbackState?.state == PlaybackState.STATE_PLAYING
 
+            lastDuration = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
             if (::homeTrackTitle.isInitialized) {
                 homeTrackTitle.text = title
                 homeTrackArtist.text = artist
