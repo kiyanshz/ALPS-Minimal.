@@ -195,8 +195,19 @@ private fun AppsGrid(onOpenMusic: () -> Unit) {
     ) {
         items(apps) { app ->
             AppCell(app) {
-                if (app.name == "موسیقی") onOpenMusic()
-                else launchPkg(ctx, app.pkg)
+                when (app.name) {
+                    "موسیقی" -> onOpenMusic()
+                    "بلوتوث" -> try {
+                        ctx.startActivity(Intent("android.settings.BLUETOOTH_SETTINGS"))
+                    } catch (_: Exception) {
+                        launchPkg(ctx, app.pkg)
+                    }
+                    "تماس" -> {
+                        if (app.pkg != null) launchPkg(ctx, app.pkg)
+                        else try { ctx.startActivity(Intent(Intent.ACTION_DIAL)) } catch (_: Exception) {}
+                    }
+                    else -> launchPkg(ctx, app.pkg)
+                }
             }
         }
     }
