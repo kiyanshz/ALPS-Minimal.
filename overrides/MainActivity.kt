@@ -33,6 +33,9 @@ import android.service.notification.NotificationListenerService
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.*
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -282,8 +285,65 @@ class MainActivity : Activity() {
     }
 
     // Premium two-tab dashboard: live music and live Neshan map.
+    private var launcherWebView: WebView? = null
+
     private fun showHome() {
-        showCarPlayDashboard()
+        dashboardTab = -1
+        musicScreenVisible = false
+        stopLocationUpdates()
+        handler.removeCallbacks(clockTick)
+        handler.removeCallbacks(mediaTick)
+
+        val web = WebView(this).apply {
+            setBackgroundColor(Color.BLACK)
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = false
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
+            webViewClient = WebViewClient()
+            addJavascriptInterface(LauncherBridge(), "Android")
+        }
+        launcherWebView = web
+        setContentView(web)
+        web.loadUrl("file:///android_asset/launcher/index.html")
+    }
+
+    private inner class LauncherBridge {
+        @JavascriptInterface
+        fun openApp(id: String) {
+            runOnUiThread {
+                when (id.lowercase(Locale.ROOT)) {
+                    "home" -> showHome()
+                    "maps" -> showMap()
+                    "music" -> showMusic()
+                    "phone" -> startActivity(Intent("android.intent.action.DIAL"))
+                    "settings" -> openSettings()
+                    "messages" -> launchMatchingApp(listOf("message", "sms", "پیام"))
+                    "radio" -> launchMatchingApp(listOf("radio", "رادیو"))
+                    "video" -> launchMatchingApp(listOf("video", "ویدیو"))
+                    "camera" -> launchMatchingApp(listOf("camera", "دوربین"))
+                    "calendar" -> launchMatchingApp(listOf("calendar", "تقویم"))
+                    "files" -> launchMatchingApp(listOf("file manager", "files", "فایل"))
+                    "bluetooth" -> startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                    "weather" -> launchMatchingApp(listOf("weather", "هوا"))
+                    else -> showApps()
+                }
+            }
+        }
+    }
+
+    private fun launchMatchingApp(keywords: List<String>) {
+        val launch = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val matches = packageManager.queryIntentActivities(launch, 0)
+        val target = matches.firstOrNull { info ->
+            info.activityInfo.packageName != packageName &&
+                keywords.any { key ->
+                    info.loadLabel(packageManager).toString().contains(key, ignoreCase = true) ||
+                        info.activityInfo.packageName.contains(key, ignoreCase = true)
+                }
+        }
+        val intent = target?.let { packageManager.getLaunchIntentForPackage(it.activityInfo.packageName) }
+        if (intent != null) startActivity(intent) else showApps()
     }
 
     // Landscape-first CarPlay-inspired split dashboard: persistent side rail,
