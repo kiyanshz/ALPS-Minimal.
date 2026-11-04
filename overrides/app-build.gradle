@@ -4,12 +4,20 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose' version '2.2.10'
 }
 
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { localProperties.load(it) }
+}
+def neshanApiKey = localProperties.getProperty("NESHAN_API_KEY") ?: (System.getenv("NESHAN_API_KEY") ?: "")
+
 android {
     namespace 'com.alps.minimal'
     compileSdk 34
 
     buildFeatures {
         compose true
+        buildConfig true
     }
 
     defaultConfig {
@@ -18,7 +26,8 @@ android {
         targetSdk 28
         versionCode 7
         versionName '0.5.0'
-        manifestPlaceholders = [NESHAN_API_KEY: (System.getenv("NESHAN_API_KEY") ?: "")]
+        buildConfigField "String", "NESHAN_API_KEY", "\"${neshanApiKey.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+        manifestPlaceholders = [NESHAN_API_KEY: neshanApiKey]
     }
 }
 
