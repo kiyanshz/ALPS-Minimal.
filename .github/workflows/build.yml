@@ -137,7 +137,18 @@ jobs:
           gradle -p extracted/ALPS-Minimal assembleDebug
 
       - name: Verify APK
-        run: test -s extracted/ALPS-Minimal/app/build/outputs/apk/debug/app-debug.apk
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="extracted/ALPS-Minimal/app/build/outputs/apk/debug/app-debug.apk"
+          AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
+          APKSIGNER="$ANDROID_HOME/build-tools/34.0.0/apksigner"
+          test -s "$APK"
+          unzip -t "$APK" >/dev/null
+          "$AAPT" dump badging "$APK" | grep -F "package: name='com.alps.minimal'"
+          "$APKSIGNER" verify "$APK"
+          "$AAPT" dump resources "$APK" | grep -q "alps_wallpaper"
+          "$AAPT" dump resources "$APK" | grep -q "ios26_lg_maps"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
