@@ -481,6 +481,7 @@ class MainActivity : Activity() {
     private fun showMap() { showDashboard(1) }
 
     private fun showMusic() {
+        dashboardTab = -1
         stopLocationUpdates()
         detachMapView()
         handler.removeCallbacks(clockTick)
@@ -675,6 +676,7 @@ class MainActivity : Activity() {
     }
 
     private fun showApps() {
+        dashboardTab = -1
         stopLocationUpdates()
         handler.removeCallbacks(clockTick)
         handler.removeCallbacks(mediaTick)
