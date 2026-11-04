@@ -423,14 +423,6 @@ class MainActivity : Activity() {
             mapPanel.addView(mapOverlay, FrameLayout.LayoutParams(-1, dp(58), Gravity.TOP).apply {
                 leftMargin = dp(12); rightMargin = dp(12); topMargin = dp(12)
             })
-            val liveDot = TextView(this).apply {
-                text = "●"
-                textSize = 27f
-                setTextColor(Color.rgb(48, 132, 255))
-                gravity = Gravity.CENTER
-                setShadowLayer(dp(5).toFloat(), 0f, 0f, Color.WHITE)
-            }
-            mapPanel.addView(liveDot, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER))
             root.addView(mapPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(12); bottomMargin = dp(10) })
             val footer = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             footer.addView(action("APPS") { showApps() }, LinearLayout.LayoutParams(dp(92), dp(42)))
