@@ -277,6 +277,7 @@ class MainActivity : Activity() {
         handler.removeCallbacks(mediaTick)
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         detachMapView()
+        mapView.isClickable = true
         root.addView(mapView, FrameLayout.LayoutParams(-1, -1))
         val back = action("‹  BACK") { showHome() }
         val backParams = FrameLayout.LayoutParams(dp(104), dp(48), Gravity.TOP or Gravity.START).apply {
@@ -380,6 +381,12 @@ class MainActivity : Activity() {
                 trackArtist.text = "دکمه فعال‌سازی دسترسی را بزن"
                 playPauseButton.text = "▶"
             }
+            if (::homeTrackTitle.isInitialized) {
+                homeTrackTitle.text = "دسترسی موزیک فعال نیست"
+                homeTrackArtist.text = "برای کنترل، دسترسی را فعال کن"
+                homePlayPauseButton.text = "▶"
+                homeCoverView.setImageDrawable(rounded(panel2, 10))
+            }
             return
         }
         try {
@@ -391,29 +398,46 @@ class MainActivity : Activity() {
             } ?: sessions.firstOrNull()
             activeController = selected
             val metadata = selected?.metadata
+            val title = metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)
+                ?: if (selected == null) "هیچ موزیکی در حال پخش نیست" else "آهنگ در حال پخش"
+            val artist = metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST)
+                ?: metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM)
+                ?: if (selected == null) "یک موزیک را در برنامه پخش‌کننده اجرا کن" else "اطلاعات خواننده در دسترس نیست"
+            val art: Bitmap? = metadata?.getBitmap(MediaMetadata.METADATA_KEY_ART)
+                ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+                ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+            val playing = selected?.playbackState?.state == PlaybackState.STATE_PLAYING
+
+            if (::homeTrackTitle.isInitialized) {
+                homeTrackTitle.text = title
+                homeTrackArtist.text = artist
+                homePlayPauseButton.text = if (playing) "Ⅱ" else "▶"
+                if (art != null) homeCoverView.setImageDrawable(BitmapDrawable(resources, art))
+                else homeCoverView.setImageDrawable(rounded(panel2, 10))
+            }
             if (::trackTitle.isInitialized) {
-                trackTitle.text = metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)
-                    ?: if (selected == null) "هیچ موزیکی در حال پخش نیست" else "آهنگ در حال پخش"
-                trackArtist.text = metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST)
-                    ?: metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM)
-                    ?: if (selected == null) "یک موزیک را در برنامه پخش‌کننده اجرا کن" else "اطلاعات خواننده در دسترس نیست"
-                val art: Bitmap? = metadata?.getBitmap(MediaMetadata.METADATA_KEY_ART)
-                    ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
-                    ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+                trackTitle.text = title
+                trackArtist.text = artist
                 if (art != null) coverView.setImageDrawable(BitmapDrawable(resources, art))
                 else coverView.setImageDrawable(rounded(panel2, 24))
-                val state = selected?.playbackState?.state
-                playPauseButton.text = if (state == PlaybackState.STATE_PLAYING) "Ⅱ" else "▶"
+                playPauseButton.text = if (playing) "Ⅱ" else "▶"
                 lastDuration = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
                 durationView.text = formatTime(lastDuration)
                 seekBar.isEnabled = lastDuration > 0
                 updatePosition()
+            } else {
+                lastDuration = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
             }
         } catch (_: SecurityException) {
             activeController = null
             if (::trackTitle.isInitialized) {
                 trackTitle.text = "دسترسی موزیک لازم است"
                 trackArtist.text = "دسترسی اعلان‌ها را فعال کن"
+            }
+            if (::homeTrackTitle.isInitialized) {
+                homeTrackTitle.text = "دسترسی موزیک لازم است"
+                homeTrackArtist.text = "دسترسی اعلان‌ها را فعال کن"
+                homePlayPauseButton.text = "▶"
             }
         } catch (_: Exception) {
             // A media app may disappear while the session list is being refreshed.
