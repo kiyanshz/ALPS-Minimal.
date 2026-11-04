@@ -11,8 +11,8 @@ android {
         applicationId 'com.alps.minimal'
         minSdk 23
         targetSdk 28
-        versionCode 4
-        versionName '0.3.1'
+        versionCode 5
+        versionName '0.3.2'
         manifestPlaceholders = [NESHAN_API_KEY: (System.getenv("NESHAN_API_KEY") ?: "")]
     }
 }

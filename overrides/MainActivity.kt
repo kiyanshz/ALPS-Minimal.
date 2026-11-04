@@ -106,6 +106,7 @@ class MainActivity : Activity() {
 
     private lateinit var mapView: MapView
     private lateinit var clockView: TextView
+    private lateinit var dateView: TextView
     private lateinit var trackTitle: TextView
     private lateinit var trackArtist: TextView
     private lateinit var coverView: ImageView
@@ -152,14 +153,9 @@ class MainActivity : Activity() {
                     }
                 } catch (_: Exception) {}
             }
-            dashboardMapStatus?.text = String.format(
-                Locale.getDefault(), "GPS  %.5f, %.5f", location.latitude, location.longitude
-            )
         }
         override fun onProviderEnabled(provider: String) {}
-        override fun onProviderDisabled(provider: String) {
-            dashboardMapStatus?.text = "سیگنال مکان‌یابی در دسترس نیست"
-        }
+        override fun onProviderDisabled(provider: String) {}
         @Deprecated("Deprecated in Android")
         override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
     }
@@ -170,6 +166,7 @@ class MainActivity : Activity() {
             if (::clockView.isInitialized) {
                 clockView.text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
             }
+            if (::dateView.isInitialized) dateView.text = formatPersianDate(Date())
             handler.postDelayed(this, 1000)
         }
     }
@@ -380,8 +377,8 @@ class MainActivity : Activity() {
         heading.addView(text("Good evening", 11f, Color.rgb(147, 164, 188)))
         heading.addView(text("Your drive", 20f, white, true))
         top.addView(heading, LinearLayout.LayoutParams(0, dp(45), 1f))
-        top.addView(text("●  GPS READY", 10f, Color.rgb(105, 218, 170), true),
-            LinearLayout.LayoutParams(dp(92), dp(40)))
+        dateView = text(formatPersianDate(Date()), 13f, Color.rgb(190, 204, 224), true).apply { gravity = Gravity.CENTER }
+        top.addView(dateView, LinearLayout.LayoutParams(dp(150), dp(40)))
         val clock = text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()), 23f, white, true)
         clock.gravity = Gravity.CENTER
         clockView = clock
@@ -411,9 +408,7 @@ class MainActivity : Activity() {
             setPadding(dp(13), dp(8), dp(13), dp(8))
         }
         mapHeader.addView(text("NESHAN  •  MAP", 10f, Color.rgb(139, 194, 255), true))
-        dashboardMapStatus = text("در انتظار دریافت موقعیت GPS…", 11f, white)
-        mapHeader.addView(dashboardMapStatus)
-        mapPanel.addView(mapHeader, FrameLayout.LayoutParams(-2, dp(58), Gravity.TOP or Gravity.START).apply {
+        mapPanel.addView(mapHeader, FrameLayout.LayoutParams(-2, dp(42), Gravity.TOP or Gravity.START).apply {
             leftMargin = dp(12); topMargin = dp(12)
         })
         val recenter = action("◎") {
@@ -440,11 +435,6 @@ class MainActivity : Activity() {
             setPadding(dp(15), dp(13), dp(15), dp(12))
             elevation = dp(4).toFloat()
         }
-        val mediaHeading = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        mediaHeading.addView(text("NOW PLAYING", 10f, Color.rgb(156, 195, 244), true),
-            LinearLayout.LayoutParams(0, dp(26), 1f))
-        mediaHeading.addView(text("♫", 18f, Color.rgb(134, 190, 255), true))
-        mediaPanel.addView(mediaHeading)
 
         dashboardCover = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
@@ -457,13 +447,13 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             topMargin = dp(7); bottomMargin = dp(8)
         })
-        homeTrackTitle = text("No music playing", 15f, white, true).apply {
+        homeTrackTitle = text("—", 15f, white, true).apply {
             gravity = Gravity.CENTER
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
         mediaPanel.addView(homeTrackTitle, LinearLayout.LayoutParams(-1, dp(27)))
-        homeTrackArtist = text("Start playback on your device", 11f, Color.rgb(169, 180, 198)).apply {
+        homeTrackArtist = text("", 11f, Color.rgb(169, 180, 198)).apply {
             gravity = Gravity.CENTER
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -564,7 +554,7 @@ class MainActivity : Activity() {
             setPadding(dp(5), dp(5), dp(5), dp(5))
         }
         val musicTab = action("♫   MUSIC") { showDashboard(0) }
-        val mapTab = action("⌖   MAP") { showDashboard(1) }
+        val mapTab = action("⌖   MAP") { showMap() }
         musicTab.background = rounded(if (dashboardTab == 0) Color.rgb(75, 119, 210) else Color.TRANSPARENT, 20)
         mapTab.background = rounded(if (dashboardTab == 1) Color.rgb(75, 119, 210) else Color.TRANSPARENT, 20)
         tabs.addView(musicTab, LinearLayout.LayoutParams(0, dp(48), 1f))
@@ -635,14 +625,7 @@ class MainActivity : Activity() {
             controls.addView(action("⏭") { activeController?.transportControls?.skipToNext() }, LinearLayout.LayoutParams(dp(58), dp(48)).apply { leftMargin = dp(10) })
             musicPanel.addView(controls)
             root.addView(musicPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(12); bottomMargin = dp(10) })
-            val access = action("فعال‌سازی دسترسی رسانه") {
-                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-            }
-            val musicFooter = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            musicFooter.addView(action("APPS") { showApps() }, LinearLayout.LayoutParams(dp(92), dp(42)))
-            musicFooter.addView(text("ALPS  •  MUSIC", 11f, muted, true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(0, dp(42), 1f))
-            musicFooter.addView(access, LinearLayout.LayoutParams(dp(150), dp(42)))
-            root.addView(musicFooter)
+            root.addView(action("APPS") { showApps() }, LinearLayout.LayoutParams(dp(92), dp(42)))
             refreshMedia()
             handler.removeCallbacks(mediaTick)
             handler.post(mediaTick)
@@ -655,22 +638,10 @@ class MainActivity : Activity() {
             dashboardMapFrame = mapPanel
             mapView.isClickable = true
             mapPanel.addView(mapView, FrameLayout.LayoutParams(-1, -1))
-            val mapOverlay = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER_VERTICAL
-                background = rounded(Color.argb(205, 17, 27, 47), 18)
-                setPadding(dp(14), dp(8), dp(14), dp(8))
-            }
-            mapOverlay.addView(text("LIVE LOCATION", 10f, Color.rgb(170, 199, 255), true))
-            dashboardMapStatus = text("در انتظار دریافت موقعیت GPS…", 11f, white)
-            mapOverlay.addView(dashboardMapStatus)
-            mapPanel.addView(mapOverlay, FrameLayout.LayoutParams(-1, dp(58), Gravity.TOP).apply {
-                leftMargin = dp(12); rightMargin = dp(12); topMargin = dp(12)
-            })
             root.addView(mapPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(12); bottomMargin = dp(10) })
             val footer = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             footer.addView(action("APPS") { showApps() }, LinearLayout.LayoutParams(dp(92), dp(42)))
-            footer.addView(text("نقشه نشان  •  موقعیت زنده", 12f, muted).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(0, dp(42), 1f))
+            footer.addView(View(this), LinearLayout.LayoutParams(0, dp(42), 1f))
             footer.addView(action("RECENTER") { lastLocation?.let { loc ->
                 mapView.getMapAsync { map -> map.cameraPosition = CameraPosition.Builder().target(LatLng(loc.latitude, loc.longitude)).zoom(16.0).build() }
             } }, LinearLayout.LayoutParams(dp(110), dp(42)))
@@ -688,7 +659,6 @@ class MainActivity : Activity() {
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
             checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 710)
-            dashboardMapStatus?.text = "برای نمایش موقعیت زنده، مجوز مکان را تأیید کن"
             return
         }
         try {
@@ -701,17 +671,13 @@ class MainActivity : Activity() {
                 else -> null
             }
             if (provider == null) {
-                dashboardMapStatus?.text = "مکان‌یابی دستگاه خاموش است"
                 return
             }
             manager.getLastKnownLocation(provider)?.let { locationListener.onLocationChanged(it) }
             manager.requestLocationUpdates(provider, 1500L, 2f, locationListener)
             locationUpdatesActive = true
-            dashboardMapStatus?.text = "در حال دریافت موقعیت زنده…"
         } catch (_: SecurityException) {
-            dashboardMapStatus?.text = "دسترسی مکان‌نمایی مجاز نیست"
         } catch (_: Exception) {
-            dashboardMapStatus?.text = "سرویس مکان‌یابی در دسترس نیست"
         }
     }
 
@@ -726,11 +692,24 @@ class MainActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 710 && dashboardTab == 1) {
             if (grantResults.any { it == PackageManager.PERMISSION_GRANTED }) startLocationUpdates()
-            else dashboardMapStatus?.text = "مجوز مکان رد شد؛ از تنظیمات برنامه فعالش کن"
         }
     }
 
-    private fun showMap() { showDashboard(1) }
+    private fun showMap() {
+        showDashboard(1)
+        openNeshan()
+    }
+
+    private fun openNeshan() {
+        val neshanPackage = "org.rajman.neshan.traffic.tehran.navigator"
+        val launchIntent = packageManager.getLaunchIntentForPackage(neshanPackage)
+        if (launchIntent != null) {
+            try { startActivity(launchIntent) }
+            catch (_: Exception) { Toast.makeText(this, "باز کردن نشان ممکن نشد", Toast.LENGTH_SHORT).show() }
+        } else {
+            Toast.makeText(this, "برنامه نشان روی دستگاه پیدا نشد", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     private fun showMusic() {
         dashboardTab = -1
@@ -757,7 +736,7 @@ class MainActivity : Activity() {
             maxLines = 2
         }
         root.addView(trackTitle, LinearLayout.LayoutParams(-1, dp(44)))
-        trackArtist = text("ابتدا پخش موزیک را در گوشی شروع کن", 15f, muted).apply { gravity = Gravity.CENTER }
+        trackArtist = text("", 15f, muted).apply { gravity = Gravity.CENTER }
         root.addView(trackArtist, LinearLayout.LayoutParams(-1, dp(32)))
 
         val timeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -801,14 +780,6 @@ class MainActivity : Activity() {
         controls.addView(next, LinearLayout.LayoutParams(0, dp(58), 1f).apply { leftMargin = dp(5) })
         root.addView(controls)
 
-        val accessButton = action("فعال‌سازی دسترسی موزیک") {
-            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-        }
-        root.addView(accessButton, LinearLayout.LayoutParams(-1, dp(46)).apply { topMargin = dp(4) })
-        root.addView(text("برای نمایش نام، کاور و کنترل پخش، دسترسی اعلان‌ها را فعال کن.", 12f, muted).apply {
-            gravity = Gravity.CENTER
-        }, LinearLayout.LayoutParams(-1, dp(34)))
-
         setContentView(root)
         refreshMedia()
         handler.removeCallbacks(mediaTick)
@@ -826,13 +797,13 @@ class MainActivity : Activity() {
             dashboardSeek?.isEnabled = false
             if (::seekBar.isInitialized) seekBar.isEnabled = false
             if (::trackTitle.isInitialized) {
-                trackTitle.text = "دسترسی موزیک فعال نیست"
-                trackArtist.text = "دکمه فعال‌سازی دسترسی را بزن"
+                trackTitle.text = "—"
+                trackArtist.text = ""
                 playPauseButton.text = "▶"
             }
             if (::homeTrackTitle.isInitialized) {
-                homeTrackTitle.text = "دسترسی موزیک فعال نیست"
-                homeTrackArtist.text = "برای کنترل، دسترسی را فعال کن"
+                homeTrackTitle.text = "—"
+                homeTrackArtist.text = ""
                 dashboardPlayButton?.text = "▶"
                 dashboardCover?.setImageDrawable(rounded(panel2, 24))
                 if (::homePlayPauseButton.isInitialized) homePlayPauseButton.text = "▶"
@@ -853,10 +824,10 @@ class MainActivity : Activity() {
             activeController = selected
             val metadata = selected?.metadata
             val title = metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)
-                ?: if (selected == null) "هیچ موزیکی در حال پخش نیست" else "آهنگ در حال پخش"
+                ?: "—"
             val artist = metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST)
                 ?: metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM)
-                ?: if (selected == null) "یک موزیک را در برنامه پخش‌کننده اجرا کن" else "اطلاعات خواننده در دسترس نیست"
+                ?: ""
             val art: Bitmap? = metadata?.getBitmap(MediaMetadata.METADATA_KEY_ART)
                 ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
                 ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
@@ -895,12 +866,12 @@ class MainActivity : Activity() {
         } catch (_: SecurityException) {
             activeController = null
             if (::trackTitle.isInitialized) {
-                trackTitle.text = "دسترسی موزیک لازم است"
-                trackArtist.text = "دسترسی اعلان‌ها را فعال کن"
+                trackTitle.text = "—"
+                trackArtist.text = ""
             }
             if (::homeTrackTitle.isInitialized) {
-                homeTrackTitle.text = "دسترسی موزیک لازم است"
-                homeTrackArtist.text = "دسترسی اعلان‌ها را فعال کن"
+                homeTrackTitle.text = "—"
+                homeTrackArtist.text = ""
                 homePlayPauseButton.text = "▶"
             }
         } catch (_: Exception) {
@@ -964,7 +935,40 @@ class MainActivity : Activity() {
         return bitmap
     }
 
+    private fun formatPersianDate(date: Date): String {
+        val cal = java.util.Calendar.getInstance().apply { time = date }
+        val gy = cal.get(java.util.Calendar.YEAR)
+        val gm = cal.get(java.util.Calendar.MONTH) + 1
+        val gd = cal.get(java.util.Calendar.DAY_OF_MONTH)
+        val monthDays = intArrayOf(0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
+        var jy = if (gy > 1600) 979 else 0
+        val year = if (gy > 1600) gy - 1600 else gy - 621
+        val adjustedYear = if (gm > 2) year + 1 else year
+        var days = 365 * year + (adjustedYear + 3) / 4 - (adjustedYear + 99) / 100 +
+            (adjustedYear + 399) / 400 - 80 + gd + monthDays[gm - 1]
+        jy += 33 * (days / 12053)
+        days %= 12053
+        jy += 4 * (days / 1461)
+        days %= 1461
+        if (days > 365) {
+            jy += (days - 1) / 365
+            days = (days - 1) % 365
+        }
+        val jm = if (days < 186) 1 + days / 31 else 7 + (days - 186) / 30
+        val jd = 1 + if (days < 186) days % 31 else (days - 186) % 30
+        val weekdays = arrayOf("", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه")
+        val months = arrayOf("", "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
+            "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند")
+        val label = weekdays[cal.get(java.util.Calendar.DAY_OF_WEEK)] + "، " + jd + " " + months[jm] + " " + jy
+        return label.map { ch -> when (ch) {
+            '0' -> '۰'; '1' -> '۱'; '2' -> '۲'; '3' -> '۳'; '4' -> '۴'
+            '5' -> '۵'; '6' -> '۶'; '7' -> '۷'; '8' -> '۸'; '9' -> '۹'
+            else -> ch
+        } }.joinToString("")
+    }
+
     private fun formatTime(milliseconds: Long): String {
+
         if (milliseconds <= 0) return "0:00"
         val seconds = milliseconds / 1000
         return String.format(Locale.getDefault(), "%d:%02d", seconds / 60, seconds % 60)
