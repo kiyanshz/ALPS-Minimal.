@@ -298,7 +298,7 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.BLACK)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = false
-            settings.allowFileAccess = false
+            settings.allowFileAccess = true
             settings.allowContentAccess = false
             webViewClient = WebViewClient()
             addJavascriptInterface(LauncherBridge(), "Android")
