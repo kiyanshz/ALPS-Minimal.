@@ -45,6 +45,35 @@
             android:textStyle="bold" />
     </LinearLayout>
 
+
+    <EditText
+        android:id="@+id/appSearch"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="8dp"
+        android:background="@drawable/bg_search"
+        android:hint="جست‌وجوی برنامه‌ها"
+        android:imeOptions="actionSearch"
+        android:inputType="text"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:singleLine="true"
+        android:textColor="#FFFFFF"
+        android:textColorHint="#AFFFFFFF"
+        android:textSize="14sp" />
+
+    <TextView
+        android:id="@+id/appEmpty"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:text="برنامه‌ای با این نام پیدا نشد"
+        android:textColor="@color/cp_text_dim"
+        android:textSize="15sp"
+        android:visibility="gone" />
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/appGrid"
         android:layout_width="match_parent"
@@ -71,9 +100,10 @@
             android:layout_height="54dp"
             android:layout_marginHorizontal="7dp"
             android:background="@drawable/bg_dock_button"
-            android:padding="14dp"
-            android:src="@android:drawable/ic_menu_view"
+            android:padding="4dp"
+            android:src="@drawable/ic_alps_launcher"
             android:contentDescription="Home"
+            android:scaleType="fitCenter"
             android:clickable="true"
             android:focusable="true" />
         <ImageView
@@ -83,8 +113,9 @@
             android:layout_marginHorizontal="7dp"
             android:background="@drawable/bg_dock_button"
             android:padding="14dp"
-            android:src="@android:drawable/ic_menu_mapmode"
+            android:src="@drawable/ios26_lg_maps"
             android:contentDescription="Maps"
+            android:scaleType="fitCenter"
             android:clickable="true"
             android:focusable="true" />
         <ImageView
@@ -94,8 +125,9 @@
             android:layout_marginHorizontal="7dp"
             android:background="@drawable/bg_dock_button"
             android:padding="14dp"
-            android:src="@android:drawable/ic_media_play"
+            android:src="@drawable/ios26_lg_music"
             android:contentDescription="Music"
+            android:scaleType="fitCenter"
             android:clickable="true"
             android:focusable="true" />
         <ImageView
@@ -105,8 +137,9 @@
             android:layout_marginHorizontal="7dp"
             android:background="@drawable/bg_dock_button"
             android:padding="14dp"
-            android:src="@android:drawable/ic_menu_call"
+            android:src="@drawable/ios26_lg_phone"
             android:contentDescription="Phone"
+            android:scaleType="fitCenter"
             android:clickable="true"
             android:focusable="true" />
         <ImageView
@@ -116,8 +149,9 @@
             android:layout_marginHorizontal="7dp"
             android:background="@drawable/bg_dock_button"
             android:padding="14dp"
-            android:src="@android:drawable/ic_menu_preferences"
+            android:src="@drawable/ios26_lg_settings"
             android:contentDescription="Settings"
+            android:scaleType="fitCenter"
             android:clickable="true"
             android:focusable="true" />
     </LinearLayout>

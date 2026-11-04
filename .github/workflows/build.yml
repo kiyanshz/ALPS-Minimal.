@@ -89,6 +89,22 @@ jobs:
           cp overrides/res/drawable/*.xml extracted/ALPS-Minimal/app/src/main/res/drawable/
           cp overrides/res/layout/*.xml extracted/ALPS-Minimal/app/src/main/res/layout/
 
+      - name: Download pinned Liquid Glass assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASSET_DIR="extracted/ALPS-Minimal/app/src/main/res/drawable-nodpi"
+          mkdir -p "$ASSET_DIR"
+          ICON_BASE="https://raw.githubusercontent.com/SysAdminDoc/iOSIconPack/db0ccf25ff695a076eee16833fd868a1a454cda6/app/src/main/res/drawable-xxxhdpi"
+          for icon in phone maps music settings messages camera; do
+            curl --fail --location --retry 3 --retry-delay 2 "$ICON_BASE/ios26_lg_${icon}.png" -o "$ASSET_DIR/ios26_lg_${icon}.png"
+          done
+          curl --fail --location --retry 3 --retry-delay 2 "https://images.unsplash.com/photo-1754806424644-091920f33989?fm=jpg&fit=crop&w=2560&h=1440&q=88" -o "$ASSET_DIR/alps_wallpaper.jpg"
+          mkdir -p "extracted/ALPS-Minimal/app/src/main/assets"
+          cp overrides/THIRD_PARTY_NOTICES.md "extracted/ALPS-Minimal/app/src/main/assets/THIRD_PARTY_NOTICES.md"
+          file "$ASSET_DIR"/*
+          test -s "$ASSET_DIR/alps_wallpaper.jpg"
+
       - name: Align Kotlin JVM target with Java
         shell: bash
         run: |
@@ -121,7 +137,18 @@ jobs:
           gradle -p extracted/ALPS-Minimal assembleDebug
 
       - name: Verify APK
-        run: test -s extracted/ALPS-Minimal/app/build/outputs/apk/debug/app-debug.apk
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="extracted/ALPS-Minimal/app/build/outputs/apk/debug/app-debug.apk"
+          AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
+          APKSIGNER="$ANDROID_HOME/build-tools/34.0.0/apksigner"
+          test -s "$APK"
+          unzip -t "$APK" >/dev/null
+          "$AAPT" dump badging "$APK" | grep -F "package: name='com.alps.minimal'"
+          "$APKSIGNER" verify "$APK"
+          "$AAPT" dump resources "$APK" | grep -q "alps_wallpaper"
+          "$AAPT" dump resources "$APK" | grep -q "ios26_lg_maps"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

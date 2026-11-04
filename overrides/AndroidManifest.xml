@@ -12,7 +12,7 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <application
         android:theme="@android:style/Theme.Material.NoActionBar"
-        android:label="ALPS Minimal"
+        android:label="ALPS" android:icon="@drawable/ic_alps_launcher" android:allowBackup="false" android:supportsRtl="true"
         android:usesCleartextTraffic="false">
         <meta-data
             android:name="org.maplibre.android.API_KEY"
