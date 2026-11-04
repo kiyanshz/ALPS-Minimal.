@@ -46,6 +46,12 @@ jobs:
           test -f extracted/ALPS-Minimal/settings.gradle || test -f extracted/ALPS-Minimal/settings.gradle.kts
           test -f extracted/ALPS-Minimal/app/build.gradle || test -f extracted/ALPS-Minimal/app/build.gradle.kts
 
+      - name: Apply app source updates
+        run: |
+          cp overrides/MainActivity.kt extracted/ALPS-Minimal/app/src/main/java/com/alps/minimal/MainActivity.kt
+          cp overrides/app-build.gradle extracted/ALPS-Minimal/app/build.gradle
+          cp overrides/AndroidManifest.xml extracted/ALPS-Minimal/app/src/main/AndroidManifest.xml
+
       - name: Align Kotlin JVM target with Java
         shell: bash
         run: |
@@ -71,7 +77,11 @@ jobs:
           fi
 
       - name: Build debug APK
-        run: gradle -p extracted/ALPS-Minimal assembleDebug
+        env:
+          NESHAN_API_KEY: ${{ secrets.NESHAN_API_KEY }}
+        run: |
+          test -n "$NESHAN_API_KEY" || { echo "NESHAN_API_KEY repository secret is missing"; exit 1; }
+          gradle -p extracted/ALPS-Minimal assembleDebug
 
       - name: Verify APK
         run: test -s extracted/ALPS-Minimal/app/build/outputs/apk/debug/app-debug.apk
