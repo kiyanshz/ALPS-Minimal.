@@ -89,6 +89,22 @@ jobs:
           cp overrides/res/drawable/*.xml extracted/ALPS-Minimal/app/src/main/res/drawable/
           cp overrides/res/layout/*.xml extracted/ALPS-Minimal/app/src/main/res/layout/
 
+      - name: Download pinned Liquid Glass assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASSET_DIR="extracted/ALPS-Minimal/app/src/main/res/drawable-nodpi"
+          mkdir -p "$ASSET_DIR"
+          ICON_BASE="https://raw.githubusercontent.com/SysAdminDoc/iOSIconPack/db0ccf25ff695a076eee16833fd868a1a454cda6/app/src/main/res/drawable-xxxhdpi"
+          for icon in phone maps music settings messages camera; do
+            curl --fail --location --retry 3 --retry-delay 2 "$ICON_BASE/ios26_lg_${icon}.png" -o "$ASSET_DIR/ios26_lg_${icon}.png"
+          done
+          curl --fail --location --retry 3 --retry-delay 2 "https://images.unsplash.com/photo-1754806424644-091920f33989?fm=jpg&fit=crop&w=2560&h=1440&q=88" -o "$ASSET_DIR/alps_wallpaper.jpg"
+          mkdir -p "extracted/ALPS-Minimal/app/src/main/assets"
+          cp overrides/THIRD_PARTY_NOTICES.md "extracted/ALPS-Minimal/app/src/main/assets/THIRD_PARTY_NOTICES.md"
+          file "$ASSET_DIR"/*
+          test -s "$ASSET_DIR/alps_wallpaper.jpg"
+
       - name: Align Kotlin JVM target with Java
         shell: bash
         run: |
