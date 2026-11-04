@@ -422,6 +422,7 @@ class MainActivity : Activity() {
     private fun showMap() { showDashboard(1) }
 
     private fun showMusic() {
+        stopLocationUpdates()
         detachMapView()
         handler.removeCallbacks(clockTick)
         val root = base()
@@ -615,6 +616,7 @@ class MainActivity : Activity() {
     }
 
     private fun showApps() {
+        stopLocationUpdates()
         handler.removeCallbacks(clockTick)
         handler.removeCallbacks(mediaTick)
         detachMapView()
