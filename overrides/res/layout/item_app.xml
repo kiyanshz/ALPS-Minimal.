@@ -1,13 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
- android:layout_width="match_parent" android:layout_height="wrap_content"
- android:orientation="vertical" android:gravity="center_horizontal"
- android:clickable="true" android:focusable="true" android:padding="10dp">
- <ImageView android:id="@+id/appIcon" android:layout_width="84dp" android:layout_height="84dp"
-  android:background="@drawable/bg_icon" android:clipToOutline="true" android:scaleType="centerCrop"
-  android:contentDescription="@null"/>
- <TextView android:id="@+id/appLabel" android:layout_width="match_parent"
-  android:layout_height="wrap_content" android:layout_marginTop="8dp"
-  android:ellipsize="end" android:gravity="center" android:maxLines="1"
-  android:textColor="@color/cp_text" android:textSize="14sp"/>
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:gravity="center_horizontal"
+    android:clickable="true"
+    android:focusable="true"
+    android:paddingStart="5dp"
+    android:paddingEnd="5dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="10dp">
+    <ImageView
+        android:id="@+id/appIcon"
+        android:layout_width="76dp"
+        android:layout_height="76dp"
+        android:background="@drawable/bg_icon"
+        android:foreground="@drawable/bg_icon_gloss"
+        android:clipToOutline="true"
+        android:padding="9dp"
+        android:scaleType="fitCenter"
+        android:contentDescription="@null"
+        android:elevation="7dp" />
+    <TextView
+        android:id="@+id/appLabel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="7dp"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:maxLines="1"
+        android:shadowColor="#99000000"
+        android:shadowDx="0"
+        android:shadowDy="1"
+        android:shadowRadius="3"
+        android:textColor="@color/cp_text"
+        android:textSize="12sp" />
 </LinearLayout>
