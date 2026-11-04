@@ -7,10 +7,12 @@ on:
       - '.github/workflows/build.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,14 +25,11 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
 
-          cmdline-tools-version: 11076708
-
-          accept-android-sdk-licenses: true
-
-      - name: Install Android SDK
-        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager --licenses
+          sdkmanager --install "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -38,13 +37,21 @@ jobs:
           gradle-version: '8.2'
 
       - name: Extract project
-        run: unzip ALPS-Minimal-source-v0.1.zip -d extracted
+        run: |
+          test -f ALPS-Minimal-source-v0.1.zip
+          unzip -q ALPS-Minimal-source-v0.1.zip -d extracted
+          test -f extracted/ALPS-Minimal/settings.gradle || test -f extracted/ALPS-Minimal/settings.gradle.kts
+          test -f extracted/ALPS-Minimal/app/build.gradle || test -f extracted/ALPS-Minimal/app/build.gradle.kts
 
-      - name: Build APK
+      - name: Build debug APK
         run: gradle -p extracted/ALPS-Minimal assembleDebug
+
+      - name: Verify APK
+        run: test -s extracted/ALPS-Minimal/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: ALPS-Minimal-APK
           path: extracted/ALPS-Minimal/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
