@@ -50,7 +50,7 @@ import java.util.Locale
 
 /* ---------- مدل‌ها ---------- */
 
-data class AppItem(
+data class CarPlayAppItem(
     val name: String, val icon: ImageVector, val c1: Color, val c2: Color,
     val pkg: String? = null
 )
@@ -75,29 +75,29 @@ private fun findLauncherPackage(ctx: Context, keywords: List<String>): String? {
 }
 
 private fun carApps(ctx: Context) = listOf(
-    AppItem("نقشه", Icons.Rounded.Map, Color(0xFF5EE07A), Color(0xFF1FA24A),
+    CarPlayAppItem("نقشه", Icons.Rounded.Map, Color(0xFF5EE07A), Color(0xFF1FA24A),
         ctx.packageManager.getLaunchIntentForPackage("org.rajman.neshan.traffic.tehran.navigator")?.component?.packageName
             ?: findLauncherPackage(ctx, listOf("نشان", "neshan"))),
-    AppItem("موسیقی", Icons.Rounded.MusicNote, Color(0xFFFF5F7E), Color(0xFFE8203F)),
-    AppItem("تماس", Icons.Rounded.Call, Color(0xFF4BE07A), Color(0xFF16A34A),
+    CarPlayAppItem("موسیقی", Icons.Rounded.MusicNote, Color(0xFFFF5F7E), Color(0xFFE8203F)),
+    CarPlayAppItem("تماس", Icons.Rounded.Call, Color(0xFF4BE07A), Color(0xFF16A34A),
         findLauncherPackage(ctx, listOf("dialer", "phone", "تلفن", "تماس"))),
-    AppItem("پیام‌ها", Icons.Rounded.Message, Color(0xFF5EE07A), Color(0xFF22B455),
+    CarPlayAppItem("پیام‌ها", Icons.Rounded.Message, Color(0xFF5EE07A), Color(0xFF22B455),
         findLauncherPackage(ctx, listOf("message", "sms", "پیام"))),
-    AppItem("رادیو", Icons.Rounded.Radio, Color(0xFFFF9F43), Color(0xFFF2630F),
+    CarPlayAppItem("رادیو", Icons.Rounded.Radio, Color(0xFFFF9F43), Color(0xFFF2630F),
         findLauncherPackage(ctx, listOf("radio", "رادیو"))),
-    AppItem("ویدیو", Icons.Rounded.PlayCircle, Color(0xFF7A7CFF), Color(0xFF4A3FE0),
+    CarPlayAppItem("ویدیو", Icons.Rounded.PlayCircle, Color(0xFF7A7CFF), Color(0xFF4A3FE0),
         findLauncherPackage(ctx, listOf("video", "ویدیو", "movie"))),
-    AppItem("دوربین", Icons.Rounded.CameraAlt, Color(0xFF9AA3B2), Color(0xFF586174),
+    CarPlayAppItem("دوربین", Icons.Rounded.CameraAlt, Color(0xFF9AA3B2), Color(0xFF586174),
         findLauncherPackage(ctx, listOf("camera", "دوربین"))),
-    AppItem("بلوتوث", Icons.Rounded.Bluetooth, Color(0xFF4AA8FF), Color(0xFF1A6FE0),
+    CarPlayAppItem("بلوتوث", Icons.Rounded.Bluetooth, Color(0xFF4AA8FF), Color(0xFF1A6FE0),
         findLauncherPackage(ctx, listOf("bluetooth", "بلوتوث", "settings", "تنظیمات"))),
-    AppItem("هوا", Icons.Rounded.WbSunny, Color(0xFF58C4FF), Color(0xFF2F7FE6),
+    CarPlayAppItem("هوا", Icons.Rounded.WbSunny, Color(0xFF58C4FF), Color(0xFF2F7FE6),
         findLauncherPackage(ctx, listOf("weather", "هوا"))),
-    AppItem("تقویم", Icons.Rounded.CalendarMonth, Color(0xFFFF6B6B), Color(0xFFE8203F),
+    CarPlayAppItem("تقویم", Icons.Rounded.CalendarMonth, Color(0xFFFF6B6B), Color(0xFFE8203F),
         findLauncherPackage(ctx, listOf("calendar", "تقویم"))),
-    AppItem("فایل‌ها", Icons.Rounded.Folder, Color(0xFFFFD24D), Color(0xFFF0A30A),
+    CarPlayAppItem("فایل‌ها", Icons.Rounded.Folder, Color(0xFFFFD24D), Color(0xFFF0A30A),
         findLauncherPackage(ctx, listOf("file manager", "files", "فایل"))),
-    AppItem("تنظیمات", Icons.Rounded.Settings, Color(0xFFA7ADBA), Color(0xFF636B7A),
+    CarPlayAppItem("تنظیمات", Icons.Rounded.Settings, Color(0xFFA7ADBA), Color(0xFF636B7A),
         findLauncherPackage(ctx, listOf("settings", "تنظیمات")))
 )
 
@@ -138,7 +138,7 @@ private fun CarPlayRoot(
     Row(Modifier.fillMaxSize().background(BgBrush)) {
         Sidebar()
         Column(Modifier.weight(1f).fillMaxHeight()) {
-            HorizontalPager(pager, Modifier.weight(1f), beyondViewportPageCount = 1) { page ->
+            HorizontalPager(pager, Modifier.weight(1f)) { page ->
                 if (page == 0) AppsGrid(onOpenMusic)
                 else Row(Modifier.fillMaxSize().padding(24.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                     MapCard(Modifier.weight(1.4f).fillMaxHeight(), onOpenMap, mapFactory, onMapEvent)
@@ -214,7 +214,7 @@ private fun AppsGrid(onOpenMusic: () -> Unit) {
 }
 
 @Composable
-private fun AppCell(app: AppItem, onClick: () -> Unit) {
+private fun AppCell(app: CarPlayAppItem, onClick: () -> Unit) {
     Column(Modifier.clip(RoundedCornerShape(20.dp)).clickable(onClick = onClick).padding(6.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
         val shape = RoundedCornerShape(24.dp)
