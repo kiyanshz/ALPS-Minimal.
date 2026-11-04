@@ -46,13 +46,6 @@ jobs:
           test -f extracted/ALPS-Minimal/settings.gradle || test -f extracted/ALPS-Minimal/settings.gradle.kts
           test -f extracted/ALPS-Minimal/app/build.gradle || test -f extracted/ALPS-Minimal/app/build.gradle.kts
 
-      - name: Inspect application source
-        run: |
-          find extracted/ALPS-Minimal/app/src/main -type f -maxdepth 8 -print
-          for f in extracted/ALPS-Minimal/app/src/main/java/com/alps/minimal/MainActivity.kt extracted/ALPS-Minimal/app/build.gradle extracted/ALPS-Minimal/app/src/main/AndroidManifest.xml extracted/ALPS-Minimal/build.gradle extracted/ALPS-Minimal/settings.gradle; do
-            if [ -f "$f" ]; then echo "===== $f ====="; sed -n '1,1000p' "$f"; fi
-          done
-
       - name: Align Kotlin JVM target with Java
         shell: bash
         run: |
