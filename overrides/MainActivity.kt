@@ -10,6 +10,7 @@ import android.os.Build
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.PixelFormat
@@ -101,6 +102,7 @@ class MainActivity : Activity() {
     private val white = Color.rgb(246, 247, 250)
     private val muted = Color.rgb(157, 166, 179)
     private val accent = Color.rgb(80, 170, 255)
+    private var cachedWallpaperBitmap: Bitmap? = null
 
     private lateinit var mapView: MapView
     private lateinit var clockView: TextView
@@ -201,6 +203,13 @@ class MainActivity : Activity() {
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
+    private fun wallpaperDrawable(): android.graphics.drawable.Drawable {
+        val bitmap = cachedWallpaperBitmap ?: BitmapFactory.decodeResource(resources, R.drawable.alps_wallpaper)
+            ?.also { cachedWallpaperBitmap = it }
+        return bitmap?.let { BitmapDrawable(resources, it).apply { gravity = Gravity.FILL } }
+            ?: LiquidGlassWallpaperDrawable()
+    }
+
     private fun rounded(color: Int, radius: Int = 22): GradientDrawable =
         GradientDrawable().apply { setColor(color); cornerRadius = dp(radius).toFloat() }
 
@@ -287,7 +296,7 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(22), dp(12), dp(22), dp(12))
-            background = LiquidGlassWallpaperDrawable()
+            background = wallpaperDrawable()
         }
 
         val top = LinearLayout(this).apply {
@@ -299,6 +308,7 @@ class MainActivity : Activity() {
         brand.addView(text("DRIVE  •  SMART COCKPIT", 9f, muted, true))
         top.addView(brand, LinearLayout.LayoutParams(0, dp(54), 1f))
         val clock = text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()), 22f, white, true)
+        clockView = clock
         clock.gravity = Gravity.CENTER
         top.addView(clock, LinearLayout.LayoutParams(dp(90), dp(54)))
         root.addView(top)
@@ -433,6 +443,8 @@ class MainActivity : Activity() {
             startLocationUpdates()
         }
         setContentView(root)
+        handler.removeCallbacks(clockTick)
+        handler.post(clockTick)
         if (dashboardTab == 0) refreshMedia()
     }
 
@@ -488,7 +500,7 @@ class MainActivity : Activity() {
         stopLocationUpdates()
         detachMapView()
         handler.removeCallbacks(clockTick)
-        val root = base()
+        val root = base().apply { background = wallpaperDrawable() }
         root.addView(header("MUSIC PLAYER", true))
 
         coverView = ImageView(this).apply {
@@ -665,7 +677,14 @@ class MainActivity : Activity() {
     }
 
     private fun togglePlayback() {
-        val controller = activeController ?: return
+        if (!notificationAccessEnabled()) {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            return
+        }
+        val controller = activeController ?: run {
+            Toast.makeText(this, "ابتدا یک موزیک را پخش کن", Toast.LENGTH_SHORT).show()
+            return
+        }
         val state = controller.playbackState?.state
         if (state == PlaybackState.STATE_PLAYING) controller.transportControls.pause()
         else controller.transportControls.play()
@@ -714,12 +733,30 @@ class MainActivity : Activity() {
         handler.removeCallbacks(mediaTick)
         detachMapView()
         setContentView(R.layout.activity_apps)
-        findViewById<View>(R.id.appsRoot).background = LiquidGlassWallpaperDrawable()
+        findViewById<View>(R.id.appsRoot).background = wallpaperDrawable()
         val grid = findViewById<RecyclerView>(R.id.appGrid)
         grid.layoutManager = GridLayoutManager(this, 5)
-        grid.adapter = AppAdapter(loadApps()) { app ->
+        val allApps = loadApps()
+        val appAdapter = AppAdapter(allApps.toMutableList()) { app ->
             packageManager.getLaunchIntentForPackage(app.packageName)?.let { startActivity(it) }
         }
+        grid.adapter = appAdapter
+        val search = findViewById<EditText>(R.id.appSearch)
+        val emptyState = findViewById<TextView>(R.id.appEmpty)
+        search.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val query = s?.toString()?.trim()?.lowercase(Locale.getDefault()).orEmpty()
+                val filtered = if (query.isEmpty()) allApps else allApps.filter {
+                    it.label.lowercase(Locale.getDefault()).contains(query) ||
+                        it.packageName.lowercase(Locale.ROOT).contains(query)
+                }
+                appAdapter.submitItems(filtered)
+                grid.visibility = if (filtered.isEmpty()) View.GONE else View.VISIBLE
+                emptyState.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
+            }
+            override fun afterTextChanged(s: android.text.Editable?) {}
+        })
         findViewById<View>(R.id.dockMaps).setOnClickListener { showMap() }
         findViewById<View>(R.id.dockMusic).setOnClickListener { showMusic() }
         findViewById<View>(R.id.dockPhone).setOnClickListener {
@@ -745,6 +782,10 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         mapView.onResume()
+        if (dashboardTab >= 0 && ::clockView.isInitialized) {
+            handler.removeCallbacks(clockTick)
+            handler.post(clockTick)
+        }
         if (dashboardTab == 1) startLocationUpdates()
         if (dashboardTab == 0 && !isFinishing) {
             handler.removeCallbacks(mediaTick)
@@ -753,6 +794,7 @@ class MainActivity : Activity() {
     }
     override fun onPause() {
         handler.removeCallbacks(mediaTick)
+        handler.removeCallbacks(clockTick)
         stopLocationUpdates()
         mapView.onPause()
         super.onPause()
