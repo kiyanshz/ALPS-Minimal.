@@ -3,8 +3,8 @@
 ALPS is a landscape-first Android cockpit launcher with a clean, CarPlay-inspired interface for vehicle head units.
 
 ## Included
-- Two-panel dashboard with live Music and Neshan Map tabs.
-- Live GPS updates, a real map position marker, and a recenter action.
+- Two-panel dashboard with live Music controls and a map panel; selecting MAP opens the installed Neshan app.
+- Live GPS position marker in the embedded map panel; no coordinate text overlay.
 - Android media-session controls, album artwork, track metadata, progress and transport controls.
 - Five-column app drawer with live search and touch feedback.
 - iOS 26 Liquid Glass-inspired app icons for supported app categories, with original app icons retained as fallback.
