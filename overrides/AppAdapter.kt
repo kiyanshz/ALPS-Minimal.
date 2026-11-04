@@ -47,12 +47,12 @@ class AppAdapter(
     private fun resolveIcon(context: Context, item: AppItem): Drawable {
         val key = "${item.packageName} ${item.label}".lowercase(Locale.ROOT)
         val asset = when {
-            listOf("maps", "map", "neshan", "navigation", "نقشه", "مسیریاب").any(key::contains) -> "ios26_lg_maps"
-            listOf("music", "spotify", "audio", "player", "موزیک", "موسیقی", "پخش").any(key::contains) -> "ios26_lg_music"
-            listOf("camera", "دوربین").any(key::contains) -> "ios26_lg_camera"
-            listOf("settings", "setting", "تنظیمات").any(key::contains) -> "ios26_lg_settings"
-            listOf("phone", "dialer", "contacts", "تلفن", "تماس", "مخاطبین").any(key::contains) -> "ios26_lg_phone"
-            listOf("message", "messaging", "sms", "whatsapp", "telegram", "تلگرام", "پیام").any(key::contains) -> "ios26_lg_messages"
+            listOf("maps", "map", "neshan", "navigation", "نقشه", "مسیریاب").any { key.contains(it) } -> "ios26_lg_maps"
+            listOf("music", "spotify", "audio", "player", "موزیک", "موسیقی", "پخش").any { key.contains(it) } -> "ios26_lg_music"
+            listOf("camera", "دوربین").any { key.contains(it) } -> "ios26_lg_camera"
+            listOf("settings", "setting", "تنظیمات").any { key.contains(it) } -> "ios26_lg_settings"
+            listOf("phone", "dialer", "contacts", "تلفن", "تماس", "مخاطبین").any { key.contains(it) } -> "ios26_lg_phone"
+            listOf("message", "messaging", "sms", "whatsapp", "telegram", "تلگرام", "پیام").any { key.contains(it) } -> "ios26_lg_messages"
             else -> null
         } ?: return item.icon
 
