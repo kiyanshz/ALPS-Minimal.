@@ -82,6 +82,12 @@ jobs:
           cp overrides/MainActivity.kt extracted/ALPS-Minimal/app/src/main/java/com/alps/minimal/MainActivity.kt
           cp overrides/app-build.gradle extracted/ALPS-Minimal/app/build.gradle
           cp overrides/AndroidManifest.xml extracted/ALPS-Minimal/app/src/main/AndroidManifest.xml
+          mkdir -p extracted/ALPS-Minimal/app/src/main/java/com/alps/minimal
+          cp overrides/AppAdapter.kt extracted/ALPS-Minimal/app/src/main/java/com/alps/minimal/AppAdapter.kt
+          mkdir -p extracted/ALPS-Minimal/app/src/main/res/values extracted/ALPS-Minimal/app/src/main/res/drawable extracted/ALPS-Minimal/app/src/main/res/layout
+          cp overrides/res/values/colors.xml extracted/ALPS-Minimal/app/src/main/res/values/colors.xml
+          cp overrides/res/drawable/*.xml extracted/ALPS-Minimal/app/src/main/res/drawable/
+          cp overrides/res/layout/*.xml extracted/ALPS-Minimal/app/src/main/res/layout/
 
       - name: Align Kotlin JVM target with Java
         shell: bash
