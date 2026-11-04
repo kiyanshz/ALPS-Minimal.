@@ -48,6 +48,10 @@ class MainActivity : Activity() {
     private lateinit var seekBar: SeekBar
     private lateinit var elapsedView: TextView
     private lateinit var durationView: TextView
+    private lateinit var homeTrackTitle: TextView
+    private lateinit var homeTrackArtist: TextView
+    private lateinit var homeCoverView: ImageView
+    private lateinit var homePlayPauseButton: TextView
     private var activeController: MediaController? = null
     private var userSeeking = false
     private var lastDuration = 0L
@@ -166,7 +170,7 @@ class MainActivity : Activity() {
     }
 
     private fun showHome() {
-        detachMapView()
+        handler.removeCallbacks(mediaTick)
         val root = base()
         val top = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -182,31 +186,90 @@ class MainActivity : Activity() {
 
         val body = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, dp(12), 0, dp(16))
+            setPadding(0, dp(8), 0, dp(12))
         }
-        val mapCard = card()
-        mapCard.addView(text("NAVIGATION", 11f, accent, true))
-        mapCard.addView(text("نقشه نشان", 25f, white, true), LinearLayout.LayoutParams(-1, 0, 1f))
-        mapCard.addView(text("برای نمایش تمام‌صفحه لمس کن", 13f, muted))
-        mapCard.setOnClickListener { showMap() }
-        body.addView(mapCard, LinearLayout.LayoutParams(0, -1, 1.2f).apply { rightMargin = dp(8) })
 
-        val musicCard = card()
+        val mapCard = card().apply { setPadding(dp(10), dp(12), dp(10), dp(12)) }
+        mapCard.addView(text("NAVIGATION", 11f, accent, true))
+        val mapPreview = FrameLayout(this).apply {
+            background = rounded(panel2, 14)
+            clipToOutline = true
+        }
+        detachMapView()
+        mapView.isClickable = false
+        mapPreview.addView(mapView, FrameLayout.LayoutParams(-1, -1))
+        val mapTapLayer = View(this).apply {
+            setBackgroundColor(Color.TRANSPARENT)
+            isClickable = true
+            setOnClickListener { showMap() }
+        }
+        mapPreview.addView(mapTapLayer, FrameLayout.LayoutParams(-1, -1))
+        mapCard.addView(mapPreview, LinearLayout.LayoutParams(-1, 0, 1f).apply {
+            topMargin = dp(8)
+            bottomMargin = dp(8)
+        })
+        mapCard.addView(text("نقشه نشان • لمس برای باز کردن", 11f, muted))
+        mapCard.setOnClickListener { showMap() }
+        body.addView(mapCard, LinearLayout.LayoutParams(0, -1, 1.15f).apply { rightMargin = dp(6) })
+
+        val musicCard = card().apply { setPadding(dp(10), dp(12), dp(10), dp(12)) }
         musicCard.addView(text("NOW PLAYING", 11f, accent, true))
-        val homeTrack = text("در حال دریافت اطلاعات موزیک…", 20f, white, true)
-        musicCard.addView(homeTrack, LinearLayout.LayoutParams(-1, 0, 1f))
-        musicCard.addView(text("برای کنترل کامل لمس کن", 13f, muted))
+        val miniTrack = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        homeCoverView = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = rounded(panel2, 10)
+            clipToOutline = true
+            setImageDrawable(rounded(panel2, 10))
+        }
+        miniTrack.addView(homeCoverView, LinearLayout.LayoutParams(dp(54), dp(54)).apply { rightMargin = dp(8) })
+        val miniText = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        homeTrackTitle = text("در حال دریافت موزیک…", 13f, white, true).apply { maxLines = 2 }
+        homeTrackArtist = text("اطلاعات آهنگ", 11f, muted).apply { maxLines = 1 }
+        miniText.addView(homeTrackTitle)
+        miniText.addView(homeTrackArtist)
+        miniTrack.addView(miniText, LinearLayout.LayoutParams(0, -2, 1f))
+        musicCard.addView(miniTrack, LinearLayout.LayoutParams(-1, dp(64)).apply { topMargin = dp(10) })
+
+        val miniControls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        val miniPrevious = action("⏮") {
+            activeController?.transportControls?.skipToPrevious()
+            handler.postDelayed({ refreshMedia() }, 350)
+        }
+        homePlayPauseButton = action("▶") { togglePlayback() }
+        val miniStop = action("■") {
+            activeController?.transportControls?.stop()
+            handler.postDelayed({ refreshMedia() }, 350)
+        }
+        val miniNext = action("⏭") {
+            activeController?.transportControls?.skipToNext()
+            handler.postDelayed({ refreshMedia() }, 350)
+        }
+        listOf(miniPrevious, homePlayPauseButton, miniStop, miniNext).forEach { control ->
+            miniControls.addView(control, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+                leftMargin = dp(2)
+                rightMargin = dp(2)
+            })
+        }
+        musicCard.addView(miniControls, LinearLayout.LayoutParams(-1, dp(46)).apply { topMargin = dp(8) })
+        musicCard.addView(text("کنترل کامل و جزئیات بیشتر", 10f, muted).apply {
+            gravity = Gravity.CENTER
+            setOnClickListener { showMusic() }
+        }, LinearLayout.LayoutParams(-1, dp(26)))
         musicCard.setOnClickListener { showMusic() }
-        body.addView(musicCard, LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = dp(8) })
+        body.addView(musicCard, LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = dp(6) })
+
         root.addView(body, LinearLayout.LayoutParams(-1, 0, 1f))
         addDock(root)
         setContentView(root)
         handler.removeCallbacks(clockTick)
         handler.post(clockTick)
         refreshMedia()
-        if (activeController?.metadata != null) {
-            homeTrack.text = activeController?.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE) ?: "در حال پخش"
-        }
     }
 
     private fun showMap() {
