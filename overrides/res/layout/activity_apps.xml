@@ -1,1 +1,19 @@
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" />
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+ android:layout_width="match_parent" android:layout_height="match_parent"
+ android:orientation="horizontal" android:background="@drawable/bg_wallpaper">
+ <LinearLayout android:layout_width="104dp" android:layout_height="match_parent"
+  android:orientation="vertical" android:gravity="center_horizontal"
+  android:background="@drawable/bg_dock" android:padding="16dp">
+  <TextClock android:id="@+id/clock" android:layout_width="wrap_content" android:layout_height="wrap_content"
+   android:format24Hour="HH:mm" android:textColor="@color/cp_text" android:textSize="22sp"/>
+  <Space android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"/>
+  <TextView android:id="@+id/dockMaps" android:layout_width="68dp" android:layout_height="68dp" android:gravity="center" android:text="MAP" android:textColor="@color/cp_text" android:background="@drawable/bg_dock_button"/>
+  <TextView android:id="@+id/dockMusic" android:layout_width="68dp" android:layout_height="68dp" android:gravity="center" android:text="MUSIC" android:textColor="@color/cp_text" android:background="@drawable/bg_dock_button"/>
+  <TextView android:id="@+id/dockPhone" android:layout_width="68dp" android:layout_height="68dp" android:gravity="center" android:text="PHONE" android:textColor="@color/cp_text" android:background="@drawable/bg_dock_button"/>
+  <Space android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"/>
+  <TextView android:id="@+id/dockSettings" android:layout_width="68dp" android:layout_height="68dp" android:gravity="center" android:text="SET" android:textColor="@color/cp_text" android:background="@drawable/bg_dock_button"/>
+ </LinearLayout>
+ <androidx.recyclerview.widget.RecyclerView android:id="@+id/appGrid" android:layout_width="0dp"
+  android:layout_height="match_parent" android:layout_weight="1" android:padding="28dp"/>
+</LinearLayout>
