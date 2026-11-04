@@ -60,7 +60,7 @@ jobs:
           changed = []
           for path in files:
               content = path.read_text()
-              updated = content.replace("1.9.0", "2.2.10")
+              updated = content.replace("1.9.0", "2.2.10").replace("1.9.22", "2.2.10")
               if updated != content:
                   path.write_text(updated)
                   changed.append(str(path))
@@ -72,7 +72,7 @@ jobs:
               print("No literal 1.9.0 found in Gradle/TOML files; checking version declarations:")
               for path in files:
                   for number, line in enumerate(path.read_text().splitlines(), 1):
-                      if "kotlin" in line.lower() or "1.9.0" in line:
+                      if "kotlin" in line.lower() or "1.9.0" in line or "1.9.22" in line:
                           print(f"{path}:{number}: {line.strip()}")
           PY
 
