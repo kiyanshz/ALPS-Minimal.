@@ -364,7 +364,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 710 && dashboardTab == 1) {
             if (grantResults.any { it == PackageManager.PERMISSION_GRANTED }) startLocationUpdates()
