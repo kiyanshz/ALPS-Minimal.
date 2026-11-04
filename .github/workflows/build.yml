@@ -80,6 +80,7 @@ jobs:
       - name: Apply app source updates
         run: |
           cp overrides/MainActivity.kt extracted/ALPS-Minimal/app/src/main/java/com/alps/minimal/MainActivity.kt
+          cp overrides/CarPlayLauncher.kt extracted/ALPS-Minimal/app/src/main/java/com/alps/minimal/CarPlayLauncher.kt
           cp overrides/app-build.gradle extracted/ALPS-Minimal/app/build.gradle
           cp overrides/AndroidManifest.xml extracted/ALPS-Minimal/app/src/main/AndroidManifest.xml
           mkdir -p extracted/ALPS-Minimal/app/src/main/assets/launcher
