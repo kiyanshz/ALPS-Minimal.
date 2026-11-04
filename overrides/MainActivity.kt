@@ -124,6 +124,7 @@ class MainActivity : Activity() {
     private var userMarker: Marker? = null
     private var hasCenteredOnUser = false
     private var dashboardTab = 0
+    private var musicScreenVisible = false
     private var locationManager: LocationManager? = null
     private var lastLocation: Location? = null
     private var locationUpdatesActive = false
@@ -290,6 +291,7 @@ class MainActivity : Activity() {
 
     private fun showDashboard(tab: Int) {
         dashboardTab = tab.coerceIn(0, 1)
+        musicScreenVisible = false
         handler.removeCallbacks(clockTick)
         detachMapView()
 
@@ -450,8 +452,9 @@ class MainActivity : Activity() {
         try {
             locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
             val manager = locationManager ?: return
+            val hasFineLocation = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
             val provider = when {
-                manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+                hasFineLocation && manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
                 manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
                 else -> null
             }
@@ -489,6 +492,7 @@ class MainActivity : Activity() {
 
     private fun showMusic() {
         dashboardTab = -1
+        musicScreenVisible = true
         stopLocationUpdates()
         detachMapView()
         handler.removeCallbacks(clockTick)
@@ -577,6 +581,8 @@ class MainActivity : Activity() {
     private fun refreshMedia() {
         if (!notificationAccessEnabled()) {
             activeController = null
+            dashboardSeek?.isEnabled = false
+            if (::seekBar.isInitialized) seekBar.isEnabled = false
             if (::trackTitle.isInitialized) {
                 trackTitle.text = "دسترسی موزیک فعال نیست"
                 trackArtist.text = "دکمه فعال‌سازی دسترسی را بزن"
@@ -596,8 +602,11 @@ class MainActivity : Activity() {
             val manager = getSystemService(MEDIA_SESSION_SERVICE) as MediaSessionManager
             val sessions = manager.getActiveSessions(ComponentName(this, MediaAccessService::class.java))
             val selected = sessions.firstOrNull {
-                val state = it.playbackState?.state
-                state == PlaybackState.STATE_PLAYING || state == PlaybackState.STATE_PAUSED || it.metadata != null
+                it.playbackState?.state == PlaybackState.STATE_PLAYING
+            } ?: sessions.firstOrNull {
+                it.playbackState?.state == PlaybackState.STATE_PAUSED && it.metadata != null
+            } ?: sessions.firstOrNull {
+                it.metadata != null
             } ?: sessions.firstOrNull()
             activeController = selected
             val metadata = selected?.metadata
@@ -625,6 +634,7 @@ class MainActivity : Activity() {
                 val positionNow = currentPlaybackPosition(selected?.playbackState)
                 dashboardElapsed?.text = formatTime(positionNow)
                 dashboardDuration?.text = formatTime(metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L)
+                dashboardSeek?.isEnabled = lastDuration > 0L
                 if (!userSeeking) dashboardSeek?.progress = if (lastDuration > 0) ((positionNow.toDouble() / lastDuration) * 1000.0).toInt().coerceIn(0,1000) else 0
             }
             if (::trackTitle.isInitialized) {
@@ -720,6 +730,7 @@ class MainActivity : Activity() {
 
     private fun showApps() {
         dashboardTab = -1
+        musicScreenVisible = false
         stopLocationUpdates()
         handler.removeCallbacks(clockTick)
         handler.removeCallbacks(mediaTick)
@@ -779,7 +790,7 @@ class MainActivity : Activity() {
             handler.post(clockTick)
         }
         if (dashboardTab == 1) startLocationUpdates()
-        if (dashboardTab == 0 && !isFinishing) {
+        if ((dashboardTab == 0 || musicScreenVisible) && !isFinishing) {
             handler.removeCallbacks(mediaTick)
             handler.post(mediaTick)
         }
