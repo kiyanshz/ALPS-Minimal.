@@ -49,10 +49,17 @@ jobs:
       - name: Align Kotlin toolchain with Neshan SDK
         shell: bash
         run: |
-          # Neshan MapLibre 13.4.1 uses Kotlin 2.2 metadata.
-          find extracted/ALPS-Minimal -type f | grep -E '\\.gradle(\\.kts)?$' | while IFS= read -r file; do
-            sed -i 's/1[.]9[.]0/2.2.10/g' "$file"
-          done
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path("extracted/ALPS-Minimal")
+          files = list(root.rglob("*.gradle")) + list(root.rglob("*.gradle.kts"))
+          for path in files:
+              content = path.read_text()
+              updated = content.replace("1.9.0", "2.2.10")
+              if updated != content:
+                  path.write_text(updated)
+                  print(f"Updated Kotlin version in {path}")
+          PY
 
       - name: Apply app source updates
         run: |
