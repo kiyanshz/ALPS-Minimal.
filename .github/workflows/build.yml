@@ -82,6 +82,8 @@ jobs:
           cp overrides/MainActivity.kt extracted/ALPS-Minimal/app/src/main/java/com/alps/minimal/MainActivity.kt
           cp overrides/app-build.gradle extracted/ALPS-Minimal/app/build.gradle
           cp overrides/AndroidManifest.xml extracted/ALPS-Minimal/app/src/main/AndroidManifest.xml
+          mkdir -p extracted/ALPS-Minimal/app/src/main/assets/launcher
+          cp overrides/assets/launcher/index.html extracted/ALPS-Minimal/app/src/main/assets/launcher/index.html
           mkdir -p extracted/ALPS-Minimal/app/src/main/java/com/alps/minimal
           cp overrides/AppAdapter.kt extracted/ALPS-Minimal/app/src/main/java/com/alps/minimal/AppAdapter.kt
           mkdir -p extracted/ALPS-Minimal/app/src/main/res/values extracted/ALPS-Minimal/app/src/main/res/drawable extracted/ALPS-Minimal/app/src/main/res/layout
@@ -144,6 +146,7 @@ jobs:
           AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
           APKSIGNER="$ANDROID_HOME/build-tools/34.0.0/apksigner"
           test -s "$APK"
+          test -s extracted/ALPS-Minimal/app/src/main/assets/launcher/index.html
           unzip -t "$APK" >/dev/null
           "$AAPT" dump badging "$APK" | grep -F "package: name='com.alps.minimal'"
           "$APKSIGNER" verify "$APK"
