@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'ALPS-Minimal-source-v0.1.zip'
+      - 'overrides/**'
       - '.github/workflows/build.yml'
   workflow_dispatch:
 
