@@ -1,6 +1,12 @@
 package com.alps.minimal
 
 import android.app.Activity
+import android.Manifest
+import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.os.Build
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Bitmap
@@ -58,6 +64,35 @@ class MainActivity : Activity() {
     private var userSeeking = false
     private var lastDuration = 0L
     private var mapInitialized = false
+    private var dashboardTab = 0
+    private var locationManager: LocationManager? = null
+    private var lastLocation: Location? = null
+    private var locationUpdatesActive = false
+    private var dashboardElapsed: TextView? = null
+    private var dashboardDuration: TextView? = null
+    private var dashboardSeek: SeekBar? = null
+    private var dashboardMapStatus: TextView? = null
+    private var dashboardMapFrame: FrameLayout? = null
+    private var dashboardCover: ImageView? = null
+    private var dashboardPlayButton: TextView? = null
+    private val locationListener = object : LocationListener {
+        override fun onLocationChanged(location: Location) {
+            lastLocation = location
+            if (dashboardTab == 1 && mapInitialized) {
+                try {
+                    val map = mapView.getMapAsync { liveMap ->
+                        liveMap.cameraPosition = CameraPosition.Builder()
+                            .target(LatLng(location.latitude, location.longitude))
+                            .zoom(16.0)
+                            .build()
+                    }
+                } catch (_: Exception) {}
+            }
+            dashboardMapStatus?.text = String.format(
+                Locale.getDefault(), "GPS  %.5f, %.5f", location.latitude, location.longitude
+            )
+        }
+    }
 
     private val handler = Handler()
     private val clockTick = object : Runnable {
@@ -171,27 +206,203 @@ class MainActivity : Activity() {
         (mapView.parent as? ViewGroup)?.removeView(mapView)
     }
 
-    // CarPlay-style launcher is the default home screen.
-    // The previous media/map dashboard remains available from the dedicated dock buttons.
+    // Premium two-tab dashboard: live music and live Neshan map.
     private fun showHome() {
-        showApps()
+        showDashboard(dashboardTab)
     }
 
-    private fun showMap() {
+    private fun showDashboard(tab: Int) {
+        dashboardTab = tab.coerceIn(0, 1)
         handler.removeCallbacks(clockTick)
-        handler.removeCallbacks(mediaTick)
-        val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         detachMapView()
-        mapView.isClickable = true
-        root.addView(mapView, FrameLayout.LayoutParams(-1, -1))
-        val back = action("‹  BACK") { showHome() }
-        val backParams = FrameLayout.LayoutParams(dp(104), dp(48), Gravity.TOP or Gravity.START).apply {
-            leftMargin = dp(16)
-            topMargin = dp(16)
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(12), dp(22), dp(12))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(9, 17, 39), Color.rgb(26, 30, 58), Color.rgb(8, 12, 25))
+            )
         }
-        root.addView(back, backParams)
+
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val brand = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        brand.addView(text("ALPS", 24f, white, true))
+        brand.addView(text("DRIVE  •  SMART COCKPIT", 9f, muted, true))
+        top.addView(brand, LinearLayout.LayoutParams(0, dp(54), 1f))
+        val clock = text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()), 22f, white, true)
+        clock.gravity = Gravity.CENTER
+        top.addView(clock, LinearLayout.LayoutParams(dp(90), dp(54)))
+        root.addView(top)
+
+        val tabs = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            background = rounded(Color.argb(105, 255, 255, 255), 24)
+            setPadding(dp(5), dp(5), dp(5), dp(5))
+        }
+        val musicTab = action("♫   MUSIC") { showDashboard(0) }
+        val mapTab = action("⌖   MAP") { showDashboard(1) }
+        musicTab.background = rounded(if (dashboardTab == 0) Color.rgb(75, 119, 210) else Color.TRANSPARENT, 20)
+        mapTab.background = rounded(if (dashboardTab == 1) Color.rgb(75, 119, 210) else Color.TRANSPARENT, 20)
+        tabs.addView(musicTab, LinearLayout.LayoutParams(0, dp(48), 1f))
+        tabs.addView(mapTab, LinearLayout.LayoutParams(0, dp(48), 1f))
+        val tabsParams = LinearLayout.LayoutParams(-1, dp(58))
+        tabsParams.topMargin = dp(10)
+        root.addView(tabs, tabsParams)
+
+        if (dashboardTab == 0) {
+            val musicPanel = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                background = GradientDrawable(
+                    GradientDrawable.Orientation.TL_BR,
+                    intArrayOf(Color.argb(220, 40, 54, 84), Color.argb(220, 20, 27, 46))
+                ).apply { cornerRadius = dp(30).toFloat(); setStroke(dp(1), Color.argb(80,255,255,255)) }
+                setPadding(dp(22), dp(18), dp(22), dp(12))
+            }
+            val eyebrow = text("NOW PLAYING", 10f, Color.rgb(170, 199, 255), true)
+            eyebrow.gravity = Gravity.CENTER
+            musicPanel.addView(eyebrow, LinearLayout.LayoutParams(-1, dp(24)))
+            dashboardCover = ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                background = rounded(Color.rgb(47, 59, 82), 26)
+                clipToOutline = true
+                setImageDrawable(rounded(Color.rgb(47, 59, 82), 26))
+                elevation = dp(10).toFloat()
+            }
+            musicPanel.addView(dashboardCover, LinearLayout.LayoutParams(dp(180), 0, 1f).apply {
+                gravity = Gravity.CENTER
+                topMargin = dp(8); bottomMargin = dp(12)
+            })
+            homeTrackTitle = text("در حال دریافت اطلاعات موزیک…", 20f, white, true).apply {
+                gravity = Gravity.CENTER; maxLines = 1
+            }
+            musicPanel.addView(homeTrackTitle, LinearLayout.LayoutParams(-1, dp(34)))
+            homeTrackArtist = text("پخش‌کننده موسیقی را اجرا کن", 13f, muted).apply { gravity = Gravity.CENTER }
+            musicPanel.addView(homeTrackArtist, LinearLayout.LayoutParams(-1, dp(26)))
+
+            val timeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            dashboardElapsed = text("0:00", 11f, muted)
+            dashboardDuration = text("0:00", 11f, muted).apply { gravity = Gravity.END }
+            timeRow.addView(dashboardElapsed, LinearLayout.LayoutParams(0, dp(22), 1f))
+            timeRow.addView(dashboardDuration, LinearLayout.LayoutParams(0, dp(22), 1f))
+            musicPanel.addView(timeRow)
+            dashboardSeek = SeekBar(this).apply {
+                max = 1000
+                progressTintList = android.content.res.ColorStateList.valueOf(Color.rgb(139, 183, 255))
+                thumbTintList = android.content.res.ColorStateList.valueOf(white)
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) { userSeeking = true }
+                    override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                        userSeeking = false
+                        if (lastDuration > 0) activeController?.transportControls?.seekTo((progress / 1000.0 * lastDuration).toLong())
+                    }
+                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                        if (fromUser && lastDuration > 0) dashboardElapsed?.text = formatTime((progress / 1000.0 * lastDuration).toLong())
+                    }
+                })
+            }
+            musicPanel.addView(dashboardSeek, LinearLayout.LayoutParams(-1, dp(30)))
+            val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+            controls.addView(action("⏮") { activeController?.transportControls?.skipToPrevious() }, LinearLayout.LayoutParams(dp(58), dp(48)).apply { rightMargin = dp(10) })
+            dashboardPlayButton = action("▶") { togglePlayback() }
+            controls.addView(dashboardPlayButton, LinearLayout.LayoutParams(dp(78), dp(52)))
+            controls.addView(action("⏭") { activeController?.transportControls?.skipToNext() }, LinearLayout.LayoutParams(dp(58), dp(48)).apply { leftMargin = dp(10) })
+            musicPanel.addView(controls)
+            root.addView(musicPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(12); bottomMargin = dp(10) })
+            val access = action("فعال‌سازی دسترسی رسانه") {
+                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            }
+            root.addView(access, LinearLayout.LayoutParams(-1, dp(42)))
+            refreshMedia()
+            handler.removeCallbacks(mediaTick)
+            handler.post(mediaTick)
+            stopLocationUpdates()
+        } else {
+            val mapPanel = FrameLayout(this).apply {
+                background = rounded(Color.rgb(20, 29, 46), 28)
+                clipToOutline = true
+            }
+            dashboardMapFrame = mapPanel
+            mapView.isClickable = true
+            mapPanel.addView(mapView, FrameLayout.LayoutParams(-1, -1))
+            val mapOverlay = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = rounded(Color.argb(205, 17, 27, 47), 18)
+                setPadding(dp(14), dp(8), dp(14), dp(8))
+            }
+            mapOverlay.addView(text("LIVE LOCATION", 10f, Color.rgb(170, 199, 255), true))
+            dashboardMapStatus = text("در انتظار دریافت موقعیت GPS…", 11f, white)
+            mapOverlay.addView(dashboardMapStatus)
+            mapPanel.addView(mapOverlay, FrameLayout.LayoutParams(-1, dp(58), Gravity.TOP).apply {
+                leftMargin = dp(12); rightMargin = dp(12); topMargin = dp(12)
+            })
+            root.addView(mapPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(12); bottomMargin = dp(10) })
+            val footer = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            footer.addView(action("APPS") { showApps() }, LinearLayout.LayoutParams(dp(92), dp(42)))
+            footer.addView(text("نقشه نشان  •  موقعیت زنده", 12f, muted).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(0, dp(42), 1f))
+            footer.addView(action("RECENTER") { lastLocation?.let { loc ->
+                mapView.getMapAsync { map -> map.cameraPosition = CameraPosition.Builder().target(LatLng(loc.latitude, loc.longitude)).zoom(16.0).build() }
+            } }, LinearLayout.LayoutParams(dp(110), dp(42)))
+            root.addView(footer)
+            handler.removeCallbacks(mediaTick)
+            startLocationUpdates()
+        }
         setContentView(root)
+        if (dashboardTab == 0) refreshMedia()
     }
+
+    private fun startLocationUpdates() {
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 710)
+            dashboardMapStatus?.text = "برای نمایش موقعیت زنده، مجوز مکان را تأیید کن"
+            return
+        }
+        try {
+            locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
+            val manager = locationManager ?: return
+            val provider = when {
+                manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+                manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+                else -> null
+            }
+            if (provider == null) {
+                dashboardMapStatus?.text = "مکان‌یابی دستگاه خاموش است"
+                return
+            }
+            manager.getLastKnownLocation(provider)?.let { locationListener.onLocationChanged(it) }
+            manager.requestLocationUpdates(provider, 1500L, 2f, locationListener)
+            locationUpdatesActive = true
+            dashboardMapStatus?.text = "در حال دریافت موقعیت زنده…"
+        } catch (_: SecurityException) {
+            dashboardMapStatus?.text = "دسترسی مکان‌نمایی مجاز نیست"
+        } catch (_: Exception) {
+            dashboardMapStatus?.text = "سرویس مکان‌یابی در دسترس نیست"
+        }
+    }
+
+    private fun stopLocationUpdates() {
+        if (locationUpdatesActive) {
+            try { locationManager?.removeUpdates(locationListener) } catch (_: Exception) {}
+            locationUpdatesActive = false
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 710 && dashboardTab == 1) {
+            if (grantResults.any { it == PackageManager.PERMISSION_GRANTED }) startLocationUpdates()
+            else dashboardMapStatus?.text = "مجوز مکان رد شد؛ از تنظیمات برنامه فعالش کن"
+        }
+    }
+
+    private fun showMap() { showDashboard(1) }
 
     private fun showMusic() {
         detachMapView()
@@ -316,9 +527,17 @@ class MainActivity : Activity() {
             if (::homeTrackTitle.isInitialized) {
                 homeTrackTitle.text = title
                 homeTrackArtist.text = artist
-                homePlayPauseButton.text = if (playing) "Ⅱ" else "▶"
-                if (art != null) homeCoverView.setImageDrawable(BitmapDrawable(resources, art))
-                else homeCoverView.setImageDrawable(rounded(panel2, 10))
+                if (::homePlayPauseButton.isInitialized) homePlayPauseButton.text = if (playing) "Ⅱ" else "▶"
+                if (::homeCoverView.isInitialized) {
+                    if (art != null) homeCoverView.setImageDrawable(BitmapDrawable(resources, art))
+                    else homeCoverView.setImageDrawable(rounded(panel2, 10))
+                }
+                dashboardPlayButton?.text = if (playing) "Ⅱ" else "▶"
+                dashboardCover?.let { if (art != null) it.setImageDrawable(BitmapDrawable(resources, art)) else it.setImageDrawable(rounded(panel2, 24)) }
+                val positionNow = selected?.playbackState?.position ?: 0L
+                dashboardElapsed?.text = formatTime(positionNow)
+                dashboardDuration?.text = formatTime(metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L)
+                if (!userSeeking) dashboardSeek?.progress = if (lastDuration > 0) ((positionNow.toDouble() / lastDuration) * 1000.0).toInt().coerceIn(0,1000) else 0
             }
             if (::trackTitle.isInitialized) {
                 trackTitle.text = title
@@ -409,13 +628,15 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         mapView.onResume()
-        if (::trackTitle.isInitialized && !isFinishing) {
+        if (dashboardTab == 1) startLocationUpdates()
+        if (dashboardTab == 0 && !isFinishing) {
             handler.removeCallbacks(mediaTick)
             handler.post(mediaTick)
         }
     }
     override fun onPause() {
         handler.removeCallbacks(mediaTick)
+        stopLocationUpdates()
         mapView.onPause()
         super.onPause()
     }
@@ -423,6 +644,7 @@ class MainActivity : Activity() {
     override fun onLowMemory() { super.onLowMemory(); mapView.onLowMemory() }
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        stopLocationUpdates()
         mapView.onDestroy()
         super.onDestroy()
     }
