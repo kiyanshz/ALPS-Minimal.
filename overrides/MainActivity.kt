@@ -101,15 +101,29 @@ private class LiquidGlassWallpaperDrawable : android.graphics.drawable.Drawable(
 class MediaAccessService : NotificationListenerService() {
     override fun onNotificationPosted(sbn: android.service.notification.StatusBarNotification) {
         try {
-            val largeIcon = sbn.notification.getLargeIcon() ?: return
-            val drawable = largeIcon.loadDrawable(this) ?: return
-            val width = drawable.intrinsicWidth.coerceAtLeast(1)
-            val height = drawable.intrinsicHeight.coerceAtLeast(1)
-            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bitmap)
-            drawable.setBounds(0, 0, width, height)
-            drawable.draw(canvas)
-            latestArtwork = bitmap
+            val extras = sbn.notification.extras
+            // MediaStyle notifications often publish the real album image here.
+            val notificationArtwork =
+                (extras.get("android.picture") as? Bitmap)
+                    ?: (extras.get("android.largeIcon.big") as? Bitmap)
+                    ?: (extras.get("android.mediaSession.artwork") as? Bitmap)
+            if (notificationArtwork != null) {
+                latestArtwork = notificationArtwork
+                return
+            }
+
+            // Do not replace a previously found album cover with a generic app icon.
+            if (latestArtwork == null) {
+                val largeIcon = sbn.notification.getLargeIcon() ?: return
+                val drawable = largeIcon.loadDrawable(this) ?: return
+                val width = drawable.intrinsicWidth.coerceAtLeast(1)
+                val height = drawable.intrinsicHeight.coerceAtLeast(1)
+                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bitmap)
+                drawable.setBounds(0, 0, width, height)
+                drawable.draw(canvas)
+                latestArtwork = bitmap
+            }
         } catch (_: Exception) {
         }
     }
@@ -275,16 +289,20 @@ class MainActivity : Activity() {
     }
 
     private fun setAnimatedContent(content: View) {
-        content.alpha = 0.96f
-        content.translationX = dp(14).toFloat()
+        content.alpha = 0.985f
+        content.translationX = dp(12).toFloat()
+        content.scaleX = 0.995f
+        content.scaleY = 0.995f
         content.setLayerType(View.LAYER_TYPE_HARDWARE, null)
         setContentView(content)
         content.animate().cancel()
         content.animate()
             .alpha(1f)
             .translationX(0f)
-            .setDuration(185L)
-            .setInterpolator(PathInterpolator(0.18f, 0.88f, 0.22f, 1f))
+            .scaleX(1f)
+            .scaleY(1f)
+            .setDuration(220L)
+            .setInterpolator(PathInterpolator(0.16f, 1f, 0.3f, 1f))
             .withLayer()
             .start()
     }
