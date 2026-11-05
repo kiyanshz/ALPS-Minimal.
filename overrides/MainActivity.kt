@@ -53,6 +53,10 @@ import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import java.text.SimpleDateFormat
 import java.util.Date
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
 import java.util.Locale
 
 
@@ -108,6 +112,11 @@ class MediaAccessService : NotificationListenerService() {
             notification.category == android.app.Notification.CATEGORY_TRANSPORT ||
             extras.containsKey(android.app.Notification.EXTRA_MEDIA_SESSION)
         if (!isMediaNotification) return
+
+        // Do not keep the previous track's notification artwork when a player posts
+        // an updated media notification without an image.
+        latestArtwork = null
+        latestArtworkPackage = sbn.packageName
 
         val keys = arrayOf(
             android.app.Notification.EXTRA_LARGE_ICON_BIG,
@@ -605,6 +614,10 @@ class MainActivity : ComponentActivity() {
     private var artworkRequestUri: String? = null
     private var artworkLoadedUri: String? = null
     private var artworkBitmap: Bitmap? = null
+    private var onlineArtworkRequestKey: String? = null
+    private var onlineArtworkLoadedKey: String? = null
+    private var onlineArtworkBitmap: Bitmap? = null
+    private var seekRefreshRunnable: Runnable? = null
 
     private fun loadArtworkFromUri(uriText: String) {
         if (uriText == artworkLoadedUri || uriText == artworkRequestUri) return
@@ -629,6 +642,69 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }.start()
+    }
+
+    /**
+     * Fallback artwork lookup used only when the active player does not expose
+     * an image through MediaMetadata, its artwork URI, or its media notification.
+     */
+    private fun fetchOnlineArtwork(playerPackage: String, title: String, artist: String) {
+        val key = "$playerPackage|$title|$artist"
+        if (key == onlineArtworkLoadedKey || key == onlineArtworkRequestKey) return
+        onlineArtworkRequestKey = key
+
+        Thread {
+            val bitmap = runCatching { lookupOnlineArtwork(title, artist) }.getOrNull()
+            handler.post {
+                if (onlineArtworkRequestKey == key) {
+                    onlineArtworkRequestKey = null
+                    onlineArtworkLoadedKey = key
+                    onlineArtworkBitmap = bitmap
+                    if (bitmap != null && !isFinishing) refreshMedia()
+                }
+            }
+        }.start()
+    }
+
+    private fun lookupOnlineArtwork(title: String, artist: String): Bitmap? {
+        val query = URLEncoder.encode("$artist $title".trim(), "UTF-8")
+        val endpoints = listOf(
+            "https://itunes.apple.com/search?term=$query&entity=song&limit=1" to { json: JSONObject ->
+                json.optJSONArray("results")?.optJSONObject(0)?.optString("artworkUrl100")
+                    ?.replace("100x100", "600x600")
+            },
+            "https://api.deezer.com/search?q=$query&limit=1" to { json: JSONObject ->
+                json.optJSONArray("data")?.optJSONObject(0)?.optJSONObject("album")?.optString("cover_big")
+            }
+        )
+
+        for ((endpoint, extractUrl) in endpoints) {
+            val imageUrl = runCatching {
+                val connection = URL(endpoint).openConnection() as HttpURLConnection
+                try {
+                    connection.connectTimeout = 5000
+                    connection.readTimeout = 5000
+                    connection.inputStream.bufferedReader().use { extractUrl(JSONObject(it.readText())) }
+                } finally {
+                    connection.disconnect()
+                }
+            }.getOrNull()
+
+            if (!imageUrl.isNullOrBlank() && imageUrl.startsWith("https://")) {
+                val bitmap = runCatching {
+                    val connection = URL(imageUrl).openConnection() as HttpURLConnection
+                    try {
+                        connection.connectTimeout = 5000
+                        connection.readTimeout = 5000
+                        connection.inputStream.use { BitmapFactory.decodeStream(it) }
+                    } finally {
+                        connection.disconnect()
+                    }
+                }.getOrNull()
+                if (bitmap != null) return bitmap
+            }
+        }
+        return null
     }
 
     private fun refreshMedia() {
@@ -685,7 +761,12 @@ class MainActivity : ComponentActivity() {
             val uriArtwork = if (artUri != null && artUri == artworkLoadedUri) artworkBitmap else null
             val notificationArtwork = MediaAccessService.latestArtwork
                 ?.takeIf { MediaAccessService.latestArtworkPackage == selected?.packageName }
-            val art = metadataArt ?: uriArtwork ?: notificationArtwork
+            val artworkKey = "${selected?.packageName.orEmpty()}|$title|$artist"
+            val onlineArtwork = if (onlineArtworkLoadedKey == artworkKey) onlineArtworkBitmap else null
+            val art = metadataArt ?: uriArtwork ?: notificationArtwork ?: onlineArtwork
+            if (art == null && title.isNotBlank() && title != "—") {
+                fetchOnlineArtwork(selected?.packageName.orEmpty(), title, artist)
+            }
             val playing = selected?.playbackState?.state == PlaybackState.STATE_PLAYING
 
             lastDuration = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
@@ -759,8 +840,15 @@ class MainActivity : ComponentActivity() {
         val duration = lastDuration
         val controller = activeController ?: return
         if (duration <= 0L) return
-        controller.transportControls.seekTo((duration * fraction.coerceIn(0f, 1f)).toLong())
-        handler.postDelayed({ refreshMedia() }, 200)
+
+        // Send the requested position while the finger moves. Some Bluetooth
+        // players ignore SEEK_TO; in that case the player simply keeps its position.
+        runCatching {
+            controller.transportControls.seekTo((duration * fraction.coerceIn(0f, 1f)).toLong())
+        }
+        seekRefreshRunnable?.let { handler.removeCallbacks(it) }
+        seekRefreshRunnable = Runnable { refreshMedia() }
+        handler.postDelayed(seekRefreshRunnable!!, 180)
     }
 
     private fun togglePlayback() {
