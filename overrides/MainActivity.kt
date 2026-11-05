@@ -131,6 +131,10 @@ class MainActivity : Activity() {
     private val muted = Color.rgb(157, 166, 179)
     private val accent = Color.rgb(80, 170, 255)
     private var cachedWallpaperBitmap: Bitmap? = null
+    private var pendingArtworkUri: String? = null
+    private var resolvedArtworkUri: String? = null
+    private var resolvedArtworkBitmap: Bitmap? = null
+    private var failedArtworkUri: String? = null
 
     private lateinit var mapView: MapView
     private lateinit var clockView: TextView
@@ -448,7 +452,10 @@ class MainActivity : Activity() {
     }
 
     private fun loadArtwork(metadata: MediaMetadata?, packageName: String? = null): Bitmap? {
-        if (metadata == null) return MediaAccessService.latestArtwork?.takeIf { MediaAccessService.latestArtworkPackage == packageName }
+        val fallback = MediaAccessService.latestArtwork
+            ?.takeIf { MediaAccessService.latestArtworkPackage == packageName }
+        if (metadata == null) return fallback
+
         val bitmap = try {
             metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)
                 ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
@@ -461,10 +468,44 @@ class MainActivity : Activity() {
             ?: metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
             ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
             ?: metadata.description?.iconUri?.toString()
-        val uriBitmap = if (uri.isNullOrBlank()) null else try {
+        if (uri.isNullOrBlank()) return fallback
+
+        if (uri.startsWith("http://", ignoreCase = true) ||
+            uri.startsWith("https://", ignoreCase = true)) {
+            if (resolvedArtworkUri == uri) return resolvedArtworkBitmap ?: fallback
+            if (pendingArtworkUri != uri && failedArtworkUri != uri) {
+                pendingArtworkUri = uri
+                Thread {
+                    val downloaded = try {
+                        val connection = java.net.URL(uri).openConnection().apply {
+                            connectTimeout = 5000
+                            readTimeout = 7000
+                            useCaches = true
+                        }
+                        connection.getInputStream().use { BitmapFactory.decodeStream(it) }
+                    } catch (_: Exception) { null }
+                    handler.post {
+                        if (pendingArtworkUri == uri) {
+                            pendingArtworkUri = null
+                            if (downloaded != null) {
+                                resolvedArtworkUri = uri
+                                resolvedArtworkBitmap = downloaded
+                                failedArtworkUri = null
+                            } else {
+                                failedArtworkUri = uri
+                            }
+                            if (!isFinishing) refreshMedia()
+                        }
+                    }
+                }.start()
+            }
+            return if (resolvedArtworkUri == uri) resolvedArtworkBitmap ?: fallback else fallback
+        }
+
+        val uriBitmap = try {
             contentResolver.openInputStream(Uri.parse(uri))?.use { BitmapFactory.decodeStream(it) }
         } catch (_: Exception) { null }
-        return uriBitmap ?: MediaAccessService.latestArtwork?.takeIf { MediaAccessService.latestArtworkPackage == packageName }
+        return uriBitmap ?: fallback
     }
 
     private fun addDock(root: LinearLayout) {
