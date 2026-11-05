@@ -336,8 +336,34 @@ class MainActivity : Activity() {
 
     private fun openCalendar() {
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_CALENDAR)
-        if (!launchSafely(intent, "برنامه تقویم پیدا نشد"))
-            launchSafely(Intent(Intent.ACTION_VIEW, Uri.parse("content://com.android.calendar/time")))
+        try {
+            startActivity(intent)
+        } catch (_: Exception) {
+            showCalendarScreen()
+        }
+    }
+
+    private fun showCalendarScreen() {
+        dashboardTab = -1
+        musicScreenVisible = false
+        stopLocationUpdates()
+        handler.removeCallbacks(clockTick)
+        handler.removeCallbacks(mediaTick)
+        detachMapView()
+        val root = base().apply { background = wallpaperDrawable() }
+        root.addView(header("CALENDAR", true))
+        val selectedDate = text(formatPersianDate(Date()), 17f, white, true).apply {
+            gravity = Gravity.CENTER
+        }
+        root.addView(selectedDate, LinearLayout.LayoutParams(-1, dp(42)))
+        val calendar = CalendarView(this).apply {
+            setOnDateChangeListener { _, year, month, day ->
+                val selected = java.util.Calendar.getInstance().apply { set(year, month, day) }
+                selectedDate.text = formatPersianDate(selected.time)
+            }
+        }
+        root.addView(calendar, LinearLayout.LayoutParams(-1, 0, 1f))
+        setAnimatedContent(root)
     }
 
     private fun launchApp(app: AppItem) {
@@ -1146,10 +1172,34 @@ class MainActivity : Activity() {
 
     private fun loadApps(): List<AppItem> {
         val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        return packageManager.queryIntentActivities(launcher, 0)
+        val apps = packageManager.queryIntentActivities(launcher, 0)
             .filter { it.activityInfo.packageName != packageName }
             .map { AppItem(it.loadLabel(packageManager).toString(), it.loadIcon(packageManager), it.activityInfo.packageName) }
-            .sortedBy { it.label.lowercase(Locale.getDefault()) }
+            .toMutableList()
+
+        fun addShortcut(label: String, keywords: List<String>, iconRes: Int, route: String) {
+            val exists = apps.any { app ->
+                val key = (app.label + " " + app.packageName).lowercase(Locale.ROOT)
+                keywords.any { key.contains(it) }
+            }
+            if (!exists) {
+                val icon = getDrawable(iconRes)
+                if (icon != null) apps.add(AppItem(label, icon, route))
+            }
+        }
+
+        addShortcut("ویدیو", listOf("video", "gallery", "photos", "گالری", "ویدیو", "فیلم"),
+            android.R.drawable.ic_menu_gallery, "alps.internal.video")
+        addShortcut("تلفن", listOf("phone", "dialer", "تلفن", "تماس"),
+            android.R.drawable.sym_action_call, "alps.internal.phone")
+        addShortcut("پیام‌ها", listOf("message", "messaging", "sms", "پیام"),
+            android.R.drawable.ic_dialog_email, "alps.internal.messages")
+        addShortcut("فایل‌ها", listOf("file", "files", "document", "manager", "فایل", "مدیریت فایل"),
+            android.R.drawable.ic_menu_manage, "alps.internal.files")
+        addShortcut("تقویم", listOf("calendar", "تقویم"),
+            android.R.drawable.ic_menu_my_calendar, "alps.internal.calendar")
+
+        return apps.sortedBy { it.label.lowercase(Locale.getDefault()) }
     }
 
     private fun openSettings() {
