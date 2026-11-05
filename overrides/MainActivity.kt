@@ -102,27 +102,16 @@ class MediaAccessService : NotificationListenerService() {
     override fun onNotificationPosted(sbn: android.service.notification.StatusBarNotification) {
         try {
             val extras = sbn.notification.extras
-            // MediaStyle notifications often publish the real album image here.
+            // Prefer artwork explicitly attached to the media notification.
+            // A generic app icon is deliberately not treated as album artwork.
             val notificationArtwork =
                 (extras.get("android.picture") as? Bitmap)
                     ?: (extras.get("android.largeIcon.big") as? Bitmap)
                     ?: (extras.get("android.mediaSession.artwork") as? Bitmap)
+                    ?: (extras.get("android.largeIcon") as? Bitmap)
             if (notificationArtwork != null) {
                 latestArtwork = notificationArtwork
-                return
-            }
-
-            // Do not replace a previously found album cover with a generic app icon.
-            if (latestArtwork == null) {
-                val largeIcon = sbn.notification.getLargeIcon() ?: return
-                val drawable = largeIcon.loadDrawable(this) ?: return
-                val width = drawable.intrinsicWidth.coerceAtLeast(1)
-                val height = drawable.intrinsicHeight.coerceAtLeast(1)
-                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                val canvas = Canvas(bitmap)
-                drawable.setBounds(0, 0, width, height)
-                drawable.draw(canvas)
-                latestArtwork = bitmap
+                latestArtworkPackage = sbn.packageName
             }
         } catch (_: Exception) {
         }
@@ -130,6 +119,7 @@ class MediaAccessService : NotificationListenerService() {
 
     companion object {
         @Volatile var latestArtwork: Bitmap? = null
+        @Volatile var latestArtworkPackage: String? = null
     }
 }
 
@@ -289,21 +279,21 @@ class MainActivity : Activity() {
     }
 
     private fun setAnimatedContent(content: View) {
-        content.alpha = 0.985f
-        content.translationX = dp(12).toFloat()
-        content.scaleX = 0.995f
-        content.scaleY = 0.995f
+        content.animate().cancel()
+        content.alpha = 0.98f
+        content.translationX = dp(18).toFloat()
+        content.scaleX = 0.997f
+        content.scaleY = 0.997f
         content.setLayerType(View.LAYER_TYPE_HARDWARE, null)
         setContentView(content)
-        content.animate().cancel()
         content.animate()
             .alpha(1f)
             .translationX(0f)
             .scaleX(1f)
             .scaleY(1f)
-            .setDuration(220L)
-            .setInterpolator(PathInterpolator(0.16f, 1f, 0.3f, 1f))
-            .withLayer()
+            .setDuration(210L)
+            .setInterpolator(PathInterpolator(0.22f, 1f, 0.36f, 1f))
+            .withEndAction { content.setLayerType(View.LAYER_TYPE_NONE, null) }
             .start()
     }
 
@@ -457,8 +447,8 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun loadArtwork(metadata: MediaMetadata?): Bitmap? {
-        if (metadata == null) return MediaAccessService.latestArtwork
+    private fun loadArtwork(metadata: MediaMetadata?, packageName: String? = null): Bitmap? {
+        if (metadata == null) return MediaAccessService.latestArtwork?.takeIf { MediaAccessService.latestArtworkPackage == packageName }
         val bitmap = try {
             metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)
                 ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
@@ -474,7 +464,7 @@ class MainActivity : Activity() {
         val uriBitmap = if (uri.isNullOrBlank()) null else try {
             contentResolver.openInputStream(Uri.parse(uri))?.use { BitmapFactory.decodeStream(it) }
         } catch (_: Exception) { null }
-        return uriBitmap ?: MediaAccessService.latestArtwork
+        return uriBitmap ?: MediaAccessService.latestArtwork?.takeIf { MediaAccessService.latestArtworkPackage == packageName }
     }
 
     private fun addDock(root: LinearLayout) {
@@ -917,7 +907,7 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 710 && dashboardTab == 1) {
             if (grantResults.any { it == PackageManager.PERMISSION_GRANTED }) startLocationUpdates()
@@ -1057,7 +1047,7 @@ class MainActivity : Activity() {
             val artist = metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST)
                 ?: metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM)
                 ?: ""
-            val art: Bitmap? = loadArtwork(metadata)
+            val art: Bitmap? = loadArtwork(metadata, selected?.packageName)
             val playing = selected?.playbackState?.state == PlaybackState.STATE_PLAYING
 
             lastDuration = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
