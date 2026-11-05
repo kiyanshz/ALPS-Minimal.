@@ -176,7 +176,7 @@ private fun CarPlayRoot(
         Sidebar()
         Column(Modifier.weight(1f).fillMaxHeight()) {
             HorizontalPager(state = pager, modifier = Modifier.weight(1f), flingBehavior = pagerFling,
-                beyondViewportPageCount = 1, key = { page -> page }) { page ->
+                key = { page -> page }) { page ->
                 if (page == 0) AppsGrid(onOpenMusic, onAppClick)
                 else Row(Modifier.fillMaxSize().padding(24.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                     MapCard(Modifier.weight(1.4f).fillMaxHeight(), onOpenMap, mapFactory, onMapEvent)
