@@ -3,10 +3,19 @@ package com.alps.minimal
 import android.content.Context
 import android.content.Intent
 import android.view.View
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -28,6 +37,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
@@ -55,6 +65,11 @@ import java.util.Locale
 data class CarPlayAppItem(
     val name: String, val icon: ImageVector, val c1: Color, val c2: Color,
     val pkg: String? = null
+)
+
+data class CallWindowState(
+    val incoming: Boolean,
+    val number: String = "Unknown number"
 )
 
 data class NowPlaying(
@@ -155,11 +170,36 @@ fun CarPlayApp(
     onOpenMap: () -> Unit,
     onAppClick: (String, String?) -> Unit,
     mapFactory: ((Context) -> View)? = null,
-    onMapEvent: ((View, Lifecycle.Event) -> Unit)? = null
+    onMapEvent: ((View, Lifecycle.Event) -> Unit)? = null,
+    callWindow: CallWindowState? = null,
+    onAnswerCall: () -> Unit = {},
+    onEndCall: () -> Unit = {},
+    onSwitchCallAudio: () -> Unit = {},
+    onOpenCallKeypad: () -> Unit = {}
 ) {
     var music by remember { mutableStateOf(false) }
-    if (music) CarPlayMusicScreen(np, onPlayPause, onNext, onPrev, onSeek) { music = false }
-    else CarPlayRoot(np, onPlayPause, onNext, onPrev, onSeek, onOpenMap, { music = true }, onAppClick, mapFactory, onMapEvent)
+    Box(Modifier.fillMaxSize()) {
+        if (music) CarPlayMusicScreen(np, onPlayPause, onNext, onPrev, onSeek) { music = false }
+        else CarPlayRoot(np, onPlayPause, onNext, onPrev, onSeek, onOpenMap, { music = true }, onAppClick, mapFactory, onMapEvent)
+        AnimatedVisibility(
+            visible = callWindow != null,
+            modifier = Modifier.fillMaxSize(),
+            enter = androidx.compose.animation.fadeIn(tween(180)) +
+                androidx.compose.animation.scaleIn(initialScale = 0.94f, animationSpec = tween(260, easing = FastOutSlowInEasing)),
+            exit = androidx.compose.animation.fadeOut(tween(140)) +
+                androidx.compose.animation.scaleOut(targetScale = 0.96f, animationSpec = tween(160))
+        ) {
+            callWindow?.let {
+                CallWindow(
+                    state = it,
+                    onAnswer = onAnswerCall,
+                    onEnd = onEndCall,
+                    onSwitchAudio = onSwitchCallAudio,
+                    onOpenKeypad = onOpenCallKeypad
+                )
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -382,4 +422,195 @@ private fun Art(art: ImageBitmap?, modifier: Modifier) {
 @Composable
 private fun Ctrl(icon: ImageVector, size: Dp, onClick: () -> Unit) {
     Icon(icon, null, tint = Color.White, modifier = Modifier.size(size).clip(CircleShape).clickable(onClick = onClick))
+}
+
+
+/* ---------- پنجرهٔ تماس ---------- */
+
+@Composable
+private fun CallWindow(
+    state: CallWindowState,
+    onAnswer: () -> Unit,
+    onEnd: () -> Unit,
+    onSwitchAudio: () -> Unit,
+    onOpenKeypad: () -> Unit
+) {
+    val pulse = rememberInfiniteTransition(label = "call-pulse")
+    val ringScale by pulse.animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1.12f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1050, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "ring-scale"
+    )
+    val ringAlpha by pulse.animateFloat(
+        initialValue = 0.18f,
+        targetValue = 0.48f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1050, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "ring-alpha"
+    )
+    val panelAlpha by animateFloatAsState(1f, animationSpec = tween(220), label = "panel-alpha")
+
+    Box(
+        Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.16f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            Modifier
+                .widthIn(min = 430.dp, max = 570.dp)
+                .fillMaxWidth(0.72f)
+                .clip(RoundedCornerShape(24.dp))
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color(0xE82A2B3B),
+                            Color(0xE8171A25),
+                            Color(0xE82B2938)
+                        )
+                    )
+                )
+                .border(1.dp, Color.White.copy(alpha = 0.34f), RoundedCornerShape(24.dp))
+                .padding(horizontal = 28.dp, vertical = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                if (state.incoming) "Incoming Call" else "Outgoing Call",
+                color = Color.White.copy(alpha = 0.94f),
+                fontSize = 21.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                state.number.ifBlank { "Unknown number" },
+                color = Color.White,
+                fontSize = 25.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(20.dp))
+            Box(Modifier.fillMaxWidth().height(132.dp), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier.size(112.dp).scale(ringScale)
+                        .border(3.dp, Color(0xFF7CFF4D).copy(alpha = ringAlpha), CircleShape)
+                )
+                Box(
+                    Modifier.size(88.dp)
+                        .border(2.dp, Color(0xFF75F34D), CircleShape)
+                        .background(Color(0x3324D65A), CircleShape)
+                        .clip(CircleShape)
+                        .clickable { if (state.incoming) onAnswer() else onSwitchAudio() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Rounded.Call,
+                        contentDescription = if (state.incoming) "Answer call" else "Call audio",
+                        tint = Color(0xFFE9E5FF),
+                        modifier = Modifier.size(48.dp)
+                    )
+                }
+                Row(
+                    Modifier.align(Alignment.CenterStart).padding(start = 34.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    repeat(3) { index ->
+                        Icon(
+                            Icons.Rounded.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.18f + index * 0.18f),
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
+                }
+                Row(
+                    Modifier.align(Alignment.CenterEnd).padding(end = 34.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    repeat(3) { index ->
+                        Icon(
+                            Icons.Rounded.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.54f - index * 0.16f),
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (state.incoming) {
+                    CallActionButton(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Rounded.Call,
+                        tint = Color(0xFF72F36A),
+                        label = "Answer",
+                        onClick = onAnswer
+                    )
+                    CallActionButton(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Rounded.CallEnd,
+                        tint = Color(0xFFFF5264),
+                        label = "Decline",
+                        onClick = onEnd
+                    )
+                } else {
+                    CallActionButton(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Rounded.PhoneAndroid,
+                        tint = Color(0xFFE9E5FF),
+                        label = "Phone audio",
+                        onClick = onSwitchAudio
+                    )
+                    CallActionButton(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Rounded.CallEnd,
+                        tint = Color(0xFFFF5264),
+                        label = "End",
+                        onClick = onEnd
+                    )
+                    CallActionButton(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Rounded.Dialpad,
+                        tint = Color(0xFFE9E5FF),
+                        label = "Keypad",
+                        onClick = onOpenKeypad
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CallActionButton(
+    modifier: Modifier,
+    icon: ImageVector,
+    tint: Color,
+    label: String,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier
+            .height(78.dp)
+            .clip(RoundedCornerShape(15.dp))
+            .background(Color.White.copy(alpha = 0.13f))
+            .border(1.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(15.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(30.dp))
+        Spacer(Modifier.height(3.dp))
+        Text(label, color = Color.White.copy(alpha = 0.88f), fontSize = 11.sp, maxLines = 1)
+    }
 }
