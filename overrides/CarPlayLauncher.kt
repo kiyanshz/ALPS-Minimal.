@@ -253,8 +253,9 @@ private fun Sidebar() {
             Text(
                 formatPersianDateLabel(now),
                 color = Color.White.copy(alpha = .86f),
-                fontSize = 15.sp,
-                lineHeight = 19.sp,
+                fontSize = 20.sp,
+                lineHeight = 24.sp,
+                fontWeight = FontWeight.SemiBold,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 maxLines = 2
             )
