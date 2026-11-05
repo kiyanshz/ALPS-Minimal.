@@ -250,7 +250,14 @@ private fun Sidebar() {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(now), color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
-            Text(formatPersianDateLabel(now), color = Color.White.copy(alpha = .72f), fontSize = 11.sp, maxLines = 1)
+            Text(
+                formatPersianDateLabel(now),
+                color = Color.White.copy(alpha = .86f),
+                fontSize = 15.sp,
+                lineHeight = 19.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                maxLines = 2
+            )
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             SideBtn(Icons.Rounded.GridView)
