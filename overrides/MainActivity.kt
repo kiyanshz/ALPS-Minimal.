@@ -34,6 +34,8 @@ import android.os.Handler
 import android.os.SystemClock
 import android.provider.Settings
 import android.provider.CalendarContract
+import android.telephony.PhoneStateListener
+import android.telephony.TelephonyManager
 import android.service.notification.NotificationListenerService
 import android.view.Gravity
 import android.view.View
@@ -125,6 +127,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var homePlayPauseButton: TextView
     private var activeController: MediaController? = null
     private val composeNowPlayingState = mutableStateOf(NowPlaying())
+    private val composeCallWindowState = mutableStateOf<CallWindowState?>(null)
+    private var lastPhoneCallState = TelephonyManager.CALL_STATE_IDLE
+    private var phoneStateListener: PhoneStateListener? = null
     private var userSeeking = false
     private var lastDuration = 0L
     private var mapInitialized = false
@@ -203,6 +208,32 @@ class MainActivity : ComponentActivity() {
             mapInitialized = true
         }
         showHome()
+        monitorPhoneCalls()
+    }
+
+    private fun monitorPhoneCalls() {
+        if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.READ_PHONE_STATE), 711)
+            return
+        }
+        val telephony = getSystemService(TELEPHONY_SERVICE) as? TelephonyManager ?: return
+        if (phoneStateListener != null) return
+        phoneStateListener = object : PhoneStateListener() {
+            override fun onCallStateChanged(state: Int, incomingNumber: String?) {
+                runOnUiThread {
+                    composeCallWindowState.value = when (state) {
+                        TelephonyManager.CALL_STATE_RINGING -> CallWindowState(true, incomingNumber?.takeIf { it.isNotBlank() } ?: "تماس ورودی")
+                        TelephonyManager.CALL_STATE_OFFHOOK -> {
+                            if (lastPhoneCallState == TelephonyManager.CALL_STATE_RINGING) composeCallWindowState.value
+                            else CallWindowState(false, "تماس خروجی")
+                        }
+                        else -> null
+                    }
+                    lastPhoneCallState = state
+                }
+            }
+        }
+        try { telephony.listen(phoneStateListener, PhoneStateListener.LISTEN_CALL_STATE) } catch (_: SecurityException) {}
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -310,7 +341,12 @@ class MainActivity : ComponentActivity() {
                 onOpenMap = { openNeshan() },
                 onAppClick = { name, pkg -> openCarPlayApp(name, pkg) },
                 mapFactory = { mapView },
-                onMapEvent = null
+                onMapEvent = null,
+                callWindow = composeCallWindowState.value,
+                onAnswerCall = { tryStartActivity(Intent(Intent.ACTION_DIAL)) },
+                onEndCall = { composeCallWindowState.value = null },
+                onSwitchCallAudio = { tryStartActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) },
+                onOpenCallKeypad = { tryStartActivity(Intent(Intent.ACTION_DIAL)) }
             )
         }
 
