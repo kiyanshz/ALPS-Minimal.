@@ -391,21 +391,8 @@ fun CarPlayMusicScreen(
             Column {
                 Text(np.title, color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(np.artist, color = Color.White.copy(alpha = .6f), fontSize = 22.sp, maxLines = 1)
-                Spacer(Modifier.height(22.dp))
-                Box(
-                    Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(Color.White.copy(alpha = .2f))
-                        .pointerInput(Unit) {
-                            detectTapGestures { onSeek((it.x / size.width).coerceIn(0f, 1f)) }
-                        }
-                        .pointerInput(Unit) {
-                            detectDragGestures { change, _ ->
-                                onSeek((change.position.x / size.width).coerceIn(0f, 1f))
-                                change.consume()
-                            }
-                        }
-                ) {
-                    Box(Modifier.fillMaxWidth(np.progress.coerceIn(0f, 1f)).fillMaxHeight().background(Color.White))
-                }
+                Spacer(Modifier.height(14.dp))
+                SeekBar(np.progress, onSeek)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                 Ctrl(Icons.Rounded.SkipPrevious, 48.dp, onPrev)
@@ -415,6 +402,53 @@ fun CarPlayMusicScreen(
                 }
                 Ctrl(Icons.Rounded.SkipNext, 48.dp, onNext)
             }
+        }
+    }
+}
+
+@Composable
+private fun SeekBar(progress: Float, onSeek: (Float) -> Unit) {
+    var dragProgress by remember { mutableStateOf<Float?>(null) }
+    val latestOnSeek by rememberUpdatedState(onSeek)
+    val shown = (dragProgress ?: progress).coerceIn(0f, 1f)
+
+    Box(
+        Modifier.fillMaxWidth().height(48.dp)
+            .pointerInput(Unit) {
+                detectTapGestures { offset ->
+                    val fraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                    dragProgress = fraction
+                    latestOnSeek(fraction)
+                    dragProgress = null
+                }
+            }
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        val fraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                        dragProgress = fraction
+                        latestOnSeek(fraction)
+                    },
+                    onDrag = { change, _ ->
+                        val fraction = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
+                        dragProgress = fraction
+                        latestOnSeek(fraction)
+                        change.consume()
+                    },
+                    onDragEnd = { dragProgress = null },
+                    onDragCancel = { dragProgress = null }
+                )
+            },
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Box(
+            Modifier.fillMaxWidth().height(6.dp).clip(CircleShape)
+                .background(Color.White.copy(alpha = .22f))
+        ) {
+            Box(
+                Modifier.fillMaxWidth(shown).fillMaxHeight()
+                    .background(Color.White)
+            )
         }
     }
 }
