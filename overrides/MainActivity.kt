@@ -98,7 +98,26 @@ private class LiquidGlassWallpaperDrawable : android.graphics.drawable.Drawable(
     override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 }
 
-class MediaAccessService : NotificationListenerService()
+class MediaAccessService : NotificationListenerService() {
+    override fun onNotificationPosted(sbn: android.service.notification.StatusBarNotification) {
+        try {
+            val largeIcon = sbn.notification.getLargeIcon() ?: return
+            val drawable = largeIcon.loadDrawable(this) ?: return
+            val width = drawable.intrinsicWidth.coerceAtLeast(1)
+            val height = drawable.intrinsicHeight.coerceAtLeast(1)
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, width, height)
+            drawable.draw(canvas)
+            latestArtwork = bitmap
+        } catch (_: Exception) {
+        }
+    }
+
+    companion object {
+        @Volatile var latestArtwork: Bitmap? = null
+    }
+}
 
 class MainActivity : Activity() {
     private val bg = Color.rgb(8, 10, 14)
@@ -256,11 +275,18 @@ class MainActivity : Activity() {
     }
 
     private fun setAnimatedContent(content: View) {
-        content.alpha = 0f
-        content.translationX = dp(22).toFloat()
+        content.alpha = 0.96f
+        content.translationX = dp(14).toFloat()
+        content.setLayerType(View.LAYER_TYPE_HARDWARE, null)
         setContentView(content)
-        content.animate().alpha(1f).translationX(0f).setDuration(230L)
-            .setInterpolator(PathInterpolator(0.22f, 1f, 0.36f, 1f)).start()
+        content.animate().cancel()
+        content.animate()
+            .alpha(1f)
+            .translationX(0f)
+            .setDuration(185L)
+            .setInterpolator(PathInterpolator(0.18f, 0.88f, 0.22f, 1f))
+            .withLayer()
+            .start()
     }
 
     private fun launchSafely(intent: Intent, errorMessage: String = "برنامه موردنظر پیدا نشد"): Boolean {
@@ -310,13 +336,17 @@ class MainActivity : Activity() {
     }
 
     private fun openVideoGallery() {
+        val gallery = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_GALLERY)
+        if (launchSafely(gallery, "گالری در دستگاه پیدا نشد")) return
+
         val picker = Intent(Intent.ACTION_GET_CONTENT).apply {
             type = "video/*"
             addCategory(Intent.CATEGORY_OPENABLE)
             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
-        if (!launchSafely(picker, "گالری ویدیو در دستگاه پیدا نشد"))
+        if (!launchSafely(picker, "گالری ویدیو در دستگاه پیدا نشد")) {
             launchSafely(Intent(Intent.ACTION_PICK, MediaStore.Video.Media.EXTERNAL_CONTENT_URI))
+        }
     }
 
     private fun openMessaging() {
@@ -366,17 +396,30 @@ class MainActivity : Activity() {
         setAnimatedContent(root)
     }
 
+    private fun openRadio(preferredPackage: String) {
+        val preferred = packageManager.getLaunchIntentForPackage(preferredPackage)
+        if (preferred != null && preferredPackage != "alps.internal.radio") {
+            if (launchSafely(preferred, "باز کردن رادیو ممکن نشد")) return
+        }
+        val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val radioApp = packageManager.queryIntentActivities(launcher, 0).firstOrNull { info ->
+            val label = info.loadLabel(packageManager).toString().lowercase(Locale.ROOT)
+            val pkg = info.activityInfo.packageName.lowercase(Locale.ROOT)
+            info.activityInfo.packageName != packageName &&
+                listOf("radio", "fm tuner", "fmradio", "رادیو").any { label.contains(it) || pkg.contains(it) }
+        }
+        val intent = radioApp?.let { packageManager.getLaunchIntentForPackage(it.activityInfo.packageName) }
+        if (intent != null) launchSafely(intent, "باز کردن رادیو ممکن نشد")
+        else Toast.makeText(this, "برنامه رادیو روی دستگاه پیدا نشد", Toast.LENGTH_SHORT).show()
+    }
+
     private fun launchApp(app: AppItem) {
         val key = (app.label + " " + app.packageName).lowercase(Locale.ROOT)
         when {
             listOf("video", "gallery", "photos", "گالری", "ویدیو", "فیلم").any { key.contains(it) } -> openVideoGallery()
             listOf("phone", "dialer", "تلفن", "تماس").any { key.contains(it) } -> showPhoneHub()
             listOf("message", "messaging", "sms", "پیام").any { key.contains(it) } -> openMessaging()
-            listOf("radio", "رادیو").any { key.contains(it) } -> {
-                val intent = packageManager.getLaunchIntentForPackage(app.packageName)
-                if (intent != null) launchSafely(intent, "باز کردن رادیو ممکن نشد")
-                else Toast.makeText(this, "برنامه رادیو روی دستگاه پیدا نشد", Toast.LENGTH_SHORT).show()
-            }
+            listOf("radio", "رادیو").any { key.contains(it) } -> openRadio(app.packageName)
             listOf("file", "files", "document", "manager", "فایل", "مدیریت فایل").any { key.contains(it) } -> {
                 val intent = packageManager.getLaunchIntentForPackage(app.packageName)
                 if (intent != null) launchSafely(intent) else openFileManager()
@@ -393,20 +436,23 @@ class MainActivity : Activity() {
     }
 
     private fun loadArtwork(metadata: MediaMetadata?): Bitmap? {
-        if (metadata == null) return null
-        val bitmap = metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)
-            ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
-            ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
-            ?: metadata.description?.iconBitmap
+        if (metadata == null) return MediaAccessService.latestArtwork
+        val bitmap = try {
+            metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)
+                ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+                ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+                ?: metadata.description?.iconBitmap
+        } catch (_: Exception) { null }
         if (bitmap != null) return bitmap
+
         val uri = metadata.getString(MediaMetadata.METADATA_KEY_ART_URI)
             ?: metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
             ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
             ?: metadata.description?.iconUri?.toString()
-        if (uri.isNullOrBlank()) return null
-        return try {
+        val uriBitmap = if (uri.isNullOrBlank()) null else try {
             contentResolver.openInputStream(Uri.parse(uri))?.use { BitmapFactory.decodeStream(it) }
         } catch (_: Exception) { null }
+        return uriBitmap ?: MediaAccessService.latestArtwork
     }
 
     private fun addDock(root: LinearLayout) {
@@ -849,7 +895,7 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 710 && dashboardTab == 1) {
             if (grantResults.any { it == PackageManager.PERMISSION_GRANTED }) startLocationUpdates()
@@ -1194,6 +1240,8 @@ class MainActivity : Activity() {
             android.R.drawable.sym_action_call, "alps.internal.phone")
         addShortcut("پیام‌ها", listOf("message", "messaging", "sms", "پیام"),
             android.R.drawable.ic_dialog_email, "alps.internal.messages")
+        addShortcut("رادیو", listOf("radio", "رادیو", "fm tuner", "fmradio"),
+            android.R.drawable.ic_media_play, "alps.internal.radio")
         addShortcut("فایل‌ها", listOf("file", "files", "document", "manager", "فایل", "مدیریت فایل"),
             android.R.drawable.ic_menu_manage, "alps.internal.files")
         addShortcut("تقویم", listOf("calendar", "تقویم"),
