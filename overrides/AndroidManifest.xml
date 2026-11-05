@@ -2,10 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <queries>
         <package android:name="org.rajman.neshan.traffic.tehran.navigator" />
-        <intent>
-            <action android:name="android.intent.action.MAIN" />
-            <category android:name="android.intent.category.LAUNCHER" />
-        </intent>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.APP_DIALER" /></intent>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.APP_MESSAGING" /></intent>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.APP_RADIO" /></intent>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.APP_GALLERY" /></intent>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.APP_FILES" /></intent>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.APP_CALENDAR" /></intent>
     </queries>
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />

@@ -15,6 +15,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
+import androidx.compose.foundation.pager.PagerSnapDistance
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -106,6 +108,38 @@ fun launchPkg(ctx: Context, pkg: String?) {
     ctx.packageManager.getLaunchIntentForPackage(pkg)?.let { ctx.startActivity(it) }
 }
 
+
+private fun formatPersianDateLabel(date: Date): String {
+    val cal = java.util.Calendar.getInstance().apply { time = date }
+    val gy = cal.get(java.util.Calendar.YEAR)
+    val gm = cal.get(java.util.Calendar.MONTH) + 1
+    val gd = cal.get(java.util.Calendar.DAY_OF_MONTH)
+    val monthDays = intArrayOf(0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
+    var jy = if (gy > 1600) 979 else 0
+    val year = if (gy > 1600) gy - 1600 else gy - 621
+    val adjustedYear = if (gm > 2) year + 1 else year
+    var days = 365 * year + (adjustedYear + 3) / 4 - (adjustedYear + 99) / 100 +
+        (adjustedYear + 399) / 400 - 80 + gd + monthDays[gm - 1]
+    jy += 33 * (days / 12053)
+    days %= 12053
+    jy += 4 * (days / 1461)
+    days %= 1461
+    if (days > 365) {
+        jy += (days - 1) / 365
+        days = (days - 1) % 365
+    }
+    val jm = if (days < 186) 1 + days / 31 else 7 + (days - 186) / 30
+    val jd = 1 + if (days < 186) days % 31 else (days - 186) % 30
+    val months = arrayOf("", "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
+        "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند")
+    val label = "$jd ${months[jm]} $jy"
+    return label.map { ch -> when (ch) {
+        '0' -> '۰'; '1' -> '۱'; '2' -> '۲'; '3' -> '۳'; '4' -> '۴'
+        '5' -> '۵'; '6' -> '۶'; '7' -> '۷'; '8' -> '۸'; '9' -> '۹'
+        else -> ch
+    } }.joinToString("")
+}
+
 private val BgBrush = Brush.verticalGradient(listOf(Color(0xFF1B2A4A), Color(0xFF0A0F1C), Color.Black))
 private val CardShape = RoundedCornerShape(28.dp)
 
@@ -119,12 +153,13 @@ fun CarPlayApp(
     onPrev: () -> Unit,
     onSeek: (Float) -> Unit,
     onOpenMap: () -> Unit,
+    onAppClick: (String, String?) -> Unit,
     mapFactory: ((Context) -> View)? = null,
     onMapEvent: ((View, Lifecycle.Event) -> Unit)? = null
 ) {
     var music by remember { mutableStateOf(false) }
     if (music) CarPlayMusicScreen(np, onPlayPause, onNext, onPrev, onSeek) { music = false }
-    else CarPlayRoot(np, onPlayPause, onNext, onPrev, onSeek, onOpenMap, { music = true }, mapFactory, onMapEvent)
+    else CarPlayRoot(np, onPlayPause, onNext, onPrev, onSeek, onOpenMap, { music = true }, onAppClick, mapFactory, onMapEvent)
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -132,14 +167,17 @@ fun CarPlayApp(
 private fun CarPlayRoot(
     np: NowPlaying, onPlayPause: () -> Unit, onNext: () -> Unit, onPrev: () -> Unit,
     onSeek: (Float) -> Unit, onOpenMap: () -> Unit, onOpenMusic: () -> Unit,
+    onAppClick: (String, String?) -> Unit,
     mapFactory: ((Context) -> View)?, onMapEvent: ((View, Lifecycle.Event) -> Unit)?
 ) {
     val pager = rememberPagerState(pageCount = { 2 })
+    val pagerFling = PagerDefaults.flingBehavior(state = pager, pagerSnapDistance = PagerSnapDistance.atMost(1))
     Row(Modifier.fillMaxSize().background(BgBrush)) {
         Sidebar()
         Column(Modifier.weight(1f).fillMaxHeight()) {
-            HorizontalPager(pager, Modifier.weight(1f)) { page ->
-                if (page == 0) AppsGrid(onOpenMusic)
+            HorizontalPager(state = pager, modifier = Modifier.weight(1f), flingBehavior = pagerFling,
+                beyondViewportPageCount = 1, key = { page -> page }) { page ->
+                if (page == 0) AppsGrid(onOpenMusic, onAppClick)
                 else Row(Modifier.fillMaxSize().padding(24.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                     MapCard(Modifier.weight(1.4f).fillMaxHeight(), onOpenMap, mapFactory, onMapEvent)
                     MusicCard(Modifier.weight(1f).fillMaxHeight(), np, onPlayPause, onNext, onPrev, onOpenMusic)
@@ -170,7 +208,10 @@ private fun Sidebar() {
         Modifier.width(110.dp).fillMaxHeight().background(Color.Black.copy(alpha = .35f)).padding(vertical = 22.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(now), color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(now), color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+            Text(formatPersianDateLabel(now), color = Color.White.copy(alpha = .72f), fontSize = 11.sp, maxLines = 1)
+        }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             SideBtn(Icons.Rounded.GridView)
             SideBtn(Icons.Rounded.GraphicEq)
@@ -186,7 +227,7 @@ private fun SideBtn(icon: ImageVector, onClick: () -> Unit = {}) {
 }
 
 @Composable
-private fun AppsGrid(onOpenMusic: () -> Unit) {
+private fun AppsGrid(onOpenMusic: () -> Unit, onAppClick: (String, String?) -> Unit) {
     val ctx = LocalContext.current
     val apps = remember(ctx) { carApps(ctx) }
     LazyVerticalGrid(
@@ -197,16 +238,7 @@ private fun AppsGrid(onOpenMusic: () -> Unit) {
             AppCell(app) {
                 when (app.name) {
                     "موسیقی" -> onOpenMusic()
-                    "بلوتوث" -> try {
-                        ctx.startActivity(Intent("android.settings.BLUETOOTH_SETTINGS"))
-                    } catch (_: Exception) {
-                        launchPkg(ctx, app.pkg)
-                    }
-                    "تماس" -> {
-                        if (app.pkg != null) launchPkg(ctx, app.pkg)
-                        else try { ctx.startActivity(Intent(Intent.ACTION_DIAL)) } catch (_: Exception) {}
-                    }
-                    else -> launchPkg(ctx, app.pkg)
+                    else -> onAppClick(app.name, app.pkg)
                 }
             }
         }

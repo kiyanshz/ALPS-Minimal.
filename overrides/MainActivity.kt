@@ -12,6 +12,7 @@ import android.location.LocationManager
 import android.os.Build
 import android.content.ComponentName
 import android.content.Intent
+import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -32,6 +33,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.SystemClock
 import android.provider.Settings
+import android.provider.CalendarContract
 import android.service.notification.NotificationListenerService
 import android.view.Gravity
 import android.view.View
@@ -306,6 +308,7 @@ class MainActivity : ComponentActivity() {
                 },
                 onSeek = { fraction -> seekToFraction(fraction) },
                 onOpenMap = { openNeshan() },
+                onAppClick = { name, pkg -> openCarPlayApp(name, pkg) },
                 mapFactory = { mapView },
                 onMapEvent = null
             )
@@ -313,6 +316,52 @@ class MainActivity : ComponentActivity() {
 
         startLocationUpdates()
         handler.post(mediaTick)
+    }
+
+
+    private fun tryStartActivity(intent: Intent): Boolean =
+        try { startActivity(intent); true } catch (_: Exception) { false }
+
+    private fun launchPackageSafely(pkg: String?): Boolean {
+        if (pkg.isNullOrBlank()) return false
+        val intent = try { packageManager.getLaunchIntentForPackage(pkg) } catch (_: Exception) { null }
+        return intent?.let { tryStartActivity(it) } ?: false
+    }
+
+    private fun launchCategorySafely(category: String): Boolean =
+        tryStartActivity(Intent(Intent.ACTION_MAIN).addCategory(category))
+
+    private fun openCarPlayApp(name: String, pkg: String?) {
+        val opened = when (name) {
+            "نقشه" -> { openNeshan(); true }
+            "تماس" -> launchCategorySafely("android.intent.category.APP_DIALER") ||
+                launchPackageSafely(pkg) || tryStartActivity(Intent(Intent.ACTION_DIAL))
+            "پیام‌ها" -> launchCategorySafely("android.intent.category.APP_MESSAGING") ||
+                launchPackageSafely(pkg) || tryStartActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:")))
+            "رادیو" -> launchPackageSafely(pkg) ||
+                launchCategorySafely("android.intent.category.APP_RADIO")
+            "ویدیو" -> launchCategorySafely("android.intent.category.APP_GALLERY") ||
+                tryStartActivity(Intent.createChooser(
+                    Intent(Intent.ACTION_GET_CONTENT).setType("video/*"), "انتخاب برنامهٔ گالری"
+                )) || launchPackageSafely(pkg)
+            "دوربین" -> launchPackageSafely(pkg) ||
+                tryStartActivity(Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE))
+            "بلوتوث" -> tryStartActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) ||
+                launchPackageSafely(pkg)
+            "هوا" -> launchPackageSafely(pkg)
+            "تقویم" -> launchCategorySafely("android.intent.category.APP_CALENDAR") ||
+                launchPackageSafely(pkg) ||
+                tryStartActivity(Intent(Intent.ACTION_VIEW, CalendarContract.CONTENT_URI))
+            "فایل‌ها" -> launchCategorySafely("android.intent.category.APP_FILES") ||
+                launchPackageSafely(pkg) ||
+                tryStartActivity(Intent.createChooser(
+                    Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE),
+                    "انتخاب فایل"
+                ))
+            "تنظیمات" -> tryStartActivity(Intent(Settings.ACTION_SETTINGS))
+            else -> launchPackageSafely(pkg)
+        }
+        if (!opened) Toast.makeText(this, "برنامهٔ $name روی دستگاه پیدا نشد", Toast.LENGTH_SHORT).show()
     }
 
     private fun launchMatchingApp(keywords: List<String>) {
@@ -464,6 +513,35 @@ class MainActivity : ComponentActivity() {
         return enabled.contains(packageName)
     }
 
+    private var artworkRequestUri: String? = null
+    private var artworkLoadedUri: String? = null
+    private var artworkBitmap: Bitmap? = null
+
+    private fun loadArtworkFromUri(uriText: String) {
+        if (uriText == artworkLoadedUri || uriText == artworkRequestUri) return
+        artworkRequestUri = uriText
+        Thread {
+            val bitmap = try {
+                val uri = Uri.parse(uriText)
+                val stream = if (uri.scheme == "http" || uri.scheme == "https") {
+                    java.net.URL(uriText).openConnection().apply {
+                        connectTimeout = 4000
+                        readTimeout = 4000
+                    }.getInputStream()
+                } else contentResolver.openInputStream(uri)
+                stream?.use { BitmapFactory.decodeStream(it) }
+            } catch (_: Exception) { null }
+            handler.post {
+                if (artworkRequestUri == uriText) {
+                    artworkRequestUri = null
+                    artworkLoadedUri = uriText
+                    artworkBitmap = bitmap
+                    if (bitmap != null && !isFinishing) refreshMedia()
+                }
+            }
+        }.start()
+    }
+
     private fun refreshMedia() {
         if (!notificationAccessEnabled()) {
             activeController = null
@@ -502,9 +580,16 @@ class MainActivity : ComponentActivity() {
             val artist = metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST)
                 ?: metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM)
                 ?: ""
-            val art: Bitmap? = metadata?.getBitmap(MediaMetadata.METADATA_KEY_ART)
+            val metadataArt: Bitmap? = metadata?.getBitmap(MediaMetadata.METADATA_KEY_ART)
                 ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
                 ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+                ?: metadata?.description?.iconBitmap
+            val artUri = metadata?.getString(MediaMetadata.METADATA_KEY_ART_URI)
+                ?: metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+                ?: metadata?.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
+                ?: metadata?.description?.iconUri?.toString()
+            if (metadataArt == null && !artUri.isNullOrBlank()) loadArtworkFromUri(artUri)
+            val art = metadataArt ?: if (artUri != null && artUri == artworkLoadedUri) artworkBitmap else null
             val playing = selected?.playbackState?.state == PlaybackState.STATE_PLAYING
 
             lastDuration = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
