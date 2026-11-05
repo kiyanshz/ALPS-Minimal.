@@ -9,6 +9,7 @@ import android.location.LocationManager
 import android.os.Build
 import android.content.ComponentName
 import android.content.Intent
+import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -29,10 +30,14 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.SystemClock
 import android.provider.Settings
+import android.provider.ContactsContract
+import android.provider.CallLog
+import android.provider.MediaStore
 import android.service.notification.NotificationListenerService
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.PathInterpolator
 import android.widget.*
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -250,6 +255,134 @@ class MainActivity : Activity() {
         setOnClickListener { click() }
     }
 
+    private fun setAnimatedContent(content: View) {
+        content.alpha = 0f
+        content.translationX = dp(22).toFloat()
+        setContentView(content)
+        content.animate().alpha(1f).translationX(0f).setDuration(230L)
+            .setInterpolator(PathInterpolator(0.22f, 1f, 0.36f, 1f)).start()
+    }
+
+    private fun launchSafely(intent: Intent, errorMessage: String = "برنامه موردنظر پیدا نشد"): Boolean {
+        return try { startActivity(intent); true }
+        catch (_: Exception) { Toast.makeText(this, errorMessage, Toast.LENGTH_SHORT).show(); false }
+    }
+
+    private fun openPhoneDialer() {
+        launchSafely(Intent(Intent.ACTION_DIAL), "برنامه تلفن در دستگاه پیدا نشد")
+    }
+
+    private fun openContacts() {
+        if (!launchSafely(Intent(Intent.ACTION_VIEW, ContactsContract.Contacts.CONTENT_URI), "برنامه مخاطبین پیدا نشد"))
+            launchSafely(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_CONTACTS))
+    }
+
+    private fun openCallLog() {
+        if (!launchSafely(Intent(Intent.ACTION_VIEW, CallLog.Calls.CONTENT_URI), "نمایش سابقه تماس پشتیبانی نمی‌شود"))
+            openPhoneDialer()
+    }
+
+    private fun showPhoneHub() {
+        dashboardTab = -1
+        musicScreenVisible = false
+        stopLocationUpdates()
+        handler.removeCallbacks(clockTick)
+        handler.removeCallbacks(mediaTick)
+        detachMapView()
+        val root = base().apply { background = wallpaperDrawable() }
+        root.addView(header("PHONE", true))
+        root.addView(text("انتخاب بخش موردنظر", 14f, muted), LinearLayout.LayoutParams(-1, dp(40)))
+        val choices = listOf(
+            Triple("⌨", "صفحه‌کلید شماره‌گیری", { openPhoneDialer() }),
+            Triple("♙", "مخاطبین", { openContacts() }),
+            Triple("◷", "تماس‌های اخیر  •  Call Logs", { openCallLog() })
+        )
+        choices.forEach { (symbol, label, callback) ->
+            val row = action("$symbol     $label", callback).apply {
+                textSize = 17f
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(22), 0, dp(22), 0)
+                background = rounded(panel2, 18)
+            }
+            root.addView(row, LinearLayout.LayoutParams(-1, dp(68)).apply { bottomMargin = dp(12) })
+        }
+        setAnimatedContent(root)
+    }
+
+    private fun openVideoGallery() {
+        val picker = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "video/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        }
+        if (!launchSafely(picker, "گالری ویدیو در دستگاه پیدا نشد"))
+            launchSafely(Intent(Intent.ACTION_PICK, MediaStore.Video.Media.EXTERNAL_CONTENT_URI))
+    }
+
+    private fun openMessaging() {
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MESSAGING)
+        if (!launchSafely(intent, "برنامه پیام‌ها پیدا نشد"))
+            launchSafely(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:")))
+    }
+
+    private fun openFileManager() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            type = "*/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        if (!launchSafely(intent, "فایل‌منیجر پیدا نشد"))
+            launchSafely(Intent(Intent.ACTION_GET_CONTENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE))
+    }
+
+    private fun openCalendar() {
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_CALENDAR)
+        if (!launchSafely(intent, "برنامه تقویم پیدا نشد"))
+            launchSafely(Intent(Intent.ACTION_VIEW, Uri.parse("content://com.android.calendar/time")))
+    }
+
+    private fun launchApp(app: AppItem) {
+        val key = (app.label + " " + app.packageName).lowercase(Locale.ROOT)
+        when {
+            listOf("video", "gallery", "photos", "گالری", "ویدیو", "فیلم").any { key.contains(it) } -> openVideoGallery()
+            listOf("phone", "dialer", "تلفن", "تماس").any { key.contains(it) } -> showPhoneHub()
+            listOf("message", "messaging", "sms", "پیام").any { key.contains(it) } -> openMessaging()
+            listOf("radio", "رادیو").any { key.contains(it) } -> {
+                val intent = packageManager.getLaunchIntentForPackage(app.packageName)
+                if (intent != null) launchSafely(intent, "باز کردن رادیو ممکن نشد")
+                else Toast.makeText(this, "برنامه رادیو روی دستگاه پیدا نشد", Toast.LENGTH_SHORT).show()
+            }
+            listOf("file", "files", "document", "manager", "فایل", "مدیریت فایل").any { key.contains(it) } -> {
+                val intent = packageManager.getLaunchIntentForPackage(app.packageName)
+                if (intent != null) launchSafely(intent) else openFileManager()
+            }
+            listOf("calendar", "تقویم").any { key.contains(it) } -> openCalendar()
+            listOf("contact", "مخاطب").any { key.contains(it) } -> openContacts()
+            listOf("call log", "call history", "تماس‌های اخیر").any { key.contains(it) } -> openCallLog()
+            else -> {
+                val intent = packageManager.getLaunchIntentForPackage(app.packageName)
+                if (intent != null) launchSafely(intent, "اجرای برنامه ممکن نشد")
+                else Toast.makeText(this, "برای این برنامه صفحه شروع پیدا نشد", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun loadArtwork(metadata: MediaMetadata?): Bitmap? {
+        if (metadata == null) return null
+        val bitmap = metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)
+            ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+            ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+            ?: metadata.description?.iconBitmap
+        if (bitmap != null) return bitmap
+        val uri = metadata.getString(MediaMetadata.METADATA_KEY_ART_URI)
+            ?: metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+            ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
+            ?: metadata.description?.iconUri?.toString()
+        if (uri.isNullOrBlank()) return null
+        return try {
+            contentResolver.openInputStream(Uri.parse(uri))?.use { BitmapFactory.decodeStream(it) }
+        } catch (_: Exception) { null }
+    }
+
     private fun addDock(root: LinearLayout) {
         val dock = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -359,7 +492,7 @@ class MainActivity : Activity() {
         railItem("▦", "APPS") { showApps() }
         railItem("⌖", "MAP") { showMap() }
         railItem("♫", "MUSIC") { showMusic() }
-        railItem("☎", "PHONE") { try { startActivity(Intent("android.intent.action.DIAL")) } catch (_: Exception) {} }
+        railItem("☎", "PHONE") { showPhoneHub() }
         val railSpacer = View(this)
         rail.addView(railSpacer, LinearLayout.LayoutParams(1, 0, 1f))
         railItem("⚙", "SETTINGS") { openSettings() }
@@ -377,12 +510,12 @@ class MainActivity : Activity() {
         heading.addView(text("Good evening", 11f, Color.rgb(147, 164, 188)))
         heading.addView(text("Your drive", 20f, white, true))
         top.addView(heading, LinearLayout.LayoutParams(0, dp(45), 1f))
-        dateView = text(formatPersianDate(Date()), 13f, Color.rgb(190, 204, 224), true).apply { gravity = Gravity.CENTER }
-        top.addView(dateView, LinearLayout.LayoutParams(dp(150), dp(40)))
-        val clock = text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()), 23f, white, true)
-        clock.gravity = Gravity.CENTER
-        clockView = clock
-        top.addView(clock, LinearLayout.LayoutParams(dp(78), dp(42)))
+        val clockStack = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
+        clockView = text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()), 23f, white, true).apply { gravity = Gravity.CENTER }
+        dateView = text(formatPersianDate(Date()), 10f, Color.rgb(190, 204, 224), true).apply { gravity = Gravity.CENTER }
+        clockStack.addView(clockView, LinearLayout.LayoutParams(-1, dp(29)))
+        clockStack.addView(dateView, LinearLayout.LayoutParams(-1, dp(18)))
+        top.addView(clockStack, LinearLayout.LayoutParams(dp(160), dp(48)))
         main.addView(top)
 
         val content = LinearLayout(this).apply {
@@ -514,7 +647,7 @@ class MainActivity : Activity() {
         }, LinearLayout.LayoutParams(-1, dp(19)).apply { topMargin = dp(5) })
         root.addView(main, LinearLayout.LayoutParams(0, -1, 1f))
 
-        setContentView(root)
+        setAnimatedContent(root)
         handler.post(clockTick)
         refreshMedia()
         handler.post(mediaTick)
@@ -541,10 +674,12 @@ class MainActivity : Activity() {
         brand.addView(text("ALPS", 24f, white, true))
         brand.addView(text("DRIVE  •  SMART COCKPIT", 9f, muted, true))
         top.addView(brand, LinearLayout.LayoutParams(0, dp(54), 1f))
-        val clock = text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()), 22f, white, true)
-        clockView = clock
-        clock.gravity = Gravity.CENTER
-        top.addView(clock, LinearLayout.LayoutParams(dp(90), dp(54)))
+        val clockStack = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
+        clockView = text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()), 22f, white, true).apply { gravity = Gravity.CENTER }
+        dateView = text(formatPersianDate(Date()), 10f, Color.rgb(190, 204, 224), true).apply { gravity = Gravity.CENTER }
+        clockStack.addView(clockView, LinearLayout.LayoutParams(-1, dp(32)))
+        clockStack.addView(dateView, LinearLayout.LayoutParams(-1, dp(18)))
+        top.addView(clockStack, LinearLayout.LayoutParams(dp(140), dp(54)))
         root.addView(top)
 
         val tabs = LinearLayout(this).apply {
@@ -649,7 +784,7 @@ class MainActivity : Activity() {
             handler.removeCallbacks(mediaTick)
             startLocationUpdates()
         }
-        setContentView(root)
+        setAnimatedContent(root)
         handler.removeCallbacks(clockTick)
         handler.post(clockTick)
         if (dashboardTab == 0) refreshMedia()
@@ -688,7 +823,7 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 710 && dashboardTab == 1) {
             if (grantResults.any { it == PackageManager.PERMISSION_GRANTED }) startLocationUpdates()
@@ -780,7 +915,7 @@ class MainActivity : Activity() {
         controls.addView(next, LinearLayout.LayoutParams(0, dp(58), 1f).apply { leftMargin = dp(5) })
         root.addView(controls)
 
-        setContentView(root)
+        setAnimatedContent(root)
         refreshMedia()
         handler.removeCallbacks(mediaTick)
         handler.post(mediaTick)
@@ -828,9 +963,7 @@ class MainActivity : Activity() {
             val artist = metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST)
                 ?: metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM)
                 ?: ""
-            val art: Bitmap? = metadata?.getBitmap(MediaMetadata.METADATA_KEY_ART)
-                ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
-                ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+            val art: Bitmap? = loadArtwork(metadata)
             val playing = selected?.playbackState?.state == PlaybackState.STATE_PLAYING
 
             lastDuration = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
@@ -981,14 +1114,12 @@ class MainActivity : Activity() {
         handler.removeCallbacks(clockTick)
         handler.removeCallbacks(mediaTick)
         detachMapView()
-        setContentView(R.layout.activity_apps)
+        setAnimatedContent(layoutInflater.inflate(R.layout.activity_apps, null, false))
         findViewById<View>(R.id.appsRoot).background = wallpaperDrawable()
         val grid = findViewById<RecyclerView>(R.id.appGrid)
         grid.layoutManager = GridLayoutManager(this, 5)
         val allApps = loadApps()
-        val appAdapter = AppAdapter(allApps.toMutableList()) { app ->
-            packageManager.getLaunchIntentForPackage(app.packageName)?.let { startActivity(it) }
-        }
+        val appAdapter = AppAdapter(allApps.toMutableList()) { app -> launchApp(app) }
         grid.adapter = appAdapter
         val search = findViewById<EditText>(R.id.appSearch)
         val emptyState = findViewById<TextView>(R.id.appEmpty)
@@ -1008,9 +1139,7 @@ class MainActivity : Activity() {
         })
         findViewById<View>(R.id.dockMaps).setOnClickListener { showMap() }
         findViewById<View>(R.id.dockMusic).setOnClickListener { showMusic() }
-        findViewById<View>(R.id.dockPhone).setOnClickListener {
-            startActivity(Intent("android.intent.action.DIAL"))
-        }
+        findViewById<View>(R.id.dockPhone).setOnClickListener { showPhoneHub() }
         findViewById<View>(R.id.dockSettings).setOnClickListener { openSettings() }
         findViewById<View>(R.id.dockHome).setOnClickListener { showHome() }
     }
