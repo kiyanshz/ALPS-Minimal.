@@ -621,9 +621,13 @@ class MainActivity : ComponentActivity() {
                 ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
                 ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
                 ?: metadata?.description?.iconBitmap
+            val descriptionExtras = metadata?.description?.extras
             val artUri = metadata?.getString(MediaMetadata.METADATA_KEY_ART_URI)
                 ?: metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
                 ?: metadata?.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
+                ?: descriptionExtras?.getString(MediaMetadata.METADATA_KEY_ART_URI)
+                ?: descriptionExtras?.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+                ?: descriptionExtras?.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
                 ?: metadata?.description?.iconUri?.toString()
             if (metadataArt == null && !artUri.isNullOrBlank()) loadArtworkFromUri(artUri)
             val art = metadataArt ?: if (artUri != null && artUri == artworkLoadedUri) artworkBitmap else null
