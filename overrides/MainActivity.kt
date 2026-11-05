@@ -100,7 +100,49 @@ private class LiquidGlassWallpaperDrawable : android.graphics.drawable.Drawable(
     override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 }
 
-class MediaAccessService : NotificationListenerService()
+class MediaAccessService : NotificationListenerService() {
+    override fun onNotificationPosted(sbn: android.service.notification.StatusBarNotification) {
+        val notification = sbn.notification ?: return
+        val extras = notification.extras ?: return
+        val isMediaNotification =
+            notification.category == android.app.Notification.CATEGORY_TRANSPORT ||
+            extras.containsKey(android.app.Notification.EXTRA_MEDIA_SESSION)
+        if (!isMediaNotification) return
+
+        val keys = arrayOf(
+            android.app.Notification.EXTRA_LARGE_ICON_BIG,
+            android.app.Notification.EXTRA_LARGE_ICON,
+            android.app.Notification.EXTRA_PICTURE
+        )
+        for (key in keys) {
+            val value = extras.get(key) ?: continue
+            val bitmap = when (value) {
+                is Bitmap -> value
+                is android.graphics.drawable.Icon -> try {
+                    val drawable = value.loadDrawable(this) ?: continue
+                    val width = drawable.intrinsicWidth.takeIf { it > 0 } ?: 256
+                    val height = drawable.intrinsicHeight.takeIf { it > 0 } ?: 256
+                    Bitmap.createBitmap(width.coerceAtMost(1200), height.coerceAtMost(1200), Bitmap.Config.ARGB_8888).also { out ->
+                        val canvas = Canvas(out)
+                        drawable.setBounds(0, 0, canvas.width, canvas.height)
+                        drawable.draw(canvas)
+                    }
+                } catch (_: Exception) { null }
+                else -> null
+            }
+            if (bitmap != null) {
+                latestArtwork = bitmap
+                latestArtworkPackage = sbn.packageName
+                break
+            }
+        }
+    }
+
+    companion object {
+        @Volatile var latestArtwork: Bitmap? = null
+        @Volatile var latestArtworkPackage: String? = null
+    }
+}
 
 class MainActivity : ComponentActivity() {
     private val bg = Color.rgb(8, 10, 14)
@@ -513,13 +555,23 @@ class MainActivity : ComponentActivity() {
             thumbTintList = android.content.res.ColorStateList.valueOf(white)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onStartTrackingTouch(seekBar: SeekBar?) { userSeeking = true }
+                private var lastLiveSeekAt = 0L
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                    userSeeking = false
                     val duration = lastDuration
                     if (duration > 0) activeController?.transportControls?.seekTo((this@MainActivity.seekBar.progress / 1000.0 * duration).toLong())
+                    userSeeking = false
+                    handler.postDelayed({ updatePosition() }, 180)
                 }
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    if (fromUser && lastDuration > 0) elapsedView.text = formatTime((progress / 1000.0 * lastDuration).toLong())
+                    if (fromUser && lastDuration > 0) {
+                        val targetPosition = (progress / 1000.0 * lastDuration).toLong()
+                        elapsedView.text = formatTime(targetPosition)
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (now - lastLiveSeekAt >= 140L) {
+                            lastLiveSeekAt = now
+                            activeController?.transportControls?.seekTo(targetPosition)
+                        }
+                    }
                 }
             })
         }
@@ -630,7 +682,10 @@ class MainActivity : ComponentActivity() {
                 ?: descriptionExtras?.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
                 ?: metadata?.description?.iconUri?.toString()
             if (metadataArt == null && !artUri.isNullOrBlank()) loadArtworkFromUri(artUri)
-            val art = metadataArt ?: if (artUri != null && artUri == artworkLoadedUri) artworkBitmap else null
+            val uriArtwork = if (artUri != null && artUri == artworkLoadedUri) artworkBitmap else null
+            val notificationArtwork = MediaAccessService.latestArtwork
+                ?.takeIf { MediaAccessService.latestArtworkPackage == selected?.packageName }
+            val art = metadataArt ?: uriArtwork ?: notificationArtwork
             val playing = selected?.playbackState?.state == PlaybackState.STATE_PLAYING
 
             lastDuration = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
