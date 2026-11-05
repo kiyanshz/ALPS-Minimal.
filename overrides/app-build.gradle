@@ -24,8 +24,8 @@ android {
         applicationId 'com.alps.minimal'
         minSdk 23
         targetSdk 28
-        versionCode 7
-        versionName '0.5.0'
+        versionCode 8
+        versionName '0.5.1'
         buildConfigField "String", "NESHAN_API_KEY", "\"${neshanApiKey.replace("\\", "\\\\").replace("\"", "\\\"")}\""
         manifestPlaceholders = [NESHAN_API_KEY: neshanApiKey]
     }
