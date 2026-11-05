@@ -454,6 +454,7 @@ class MainActivity : ComponentActivity() {
         if (requestCode == 710 && dashboardTab == 1) {
             if (grantResults.any { it == PackageManager.PERMISSION_GRANTED }) startLocationUpdates()
         }
+        if (requestCode == 711 && grantResults.any { it == PackageManager.PERMISSION_GRANTED }) monitorPhoneCalls()
     }
 
     private fun showMap() {
