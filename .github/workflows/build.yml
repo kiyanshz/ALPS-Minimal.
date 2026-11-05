@@ -88,6 +88,9 @@ jobs:
           cp overrides/res/values/colors.xml extracted/ALPS-Minimal/app/src/main/res/values/colors.xml
           cp overrides/res/drawable/*.xml extracted/ALPS-Minimal/app/src/main/res/drawable/
           cp overrides/res/layout/*.xml extracted/ALPS-Minimal/app/src/main/res/layout/
+          # The native MainActivity replaces the abandoned Compose prototype.
+          # Its stale AppItem definition conflicts with AppAdapter and is not used.
+          rm -f extracted/ALPS-Minimal/app/src/main/java/com/alps/minimal/CarPlayLauncher.kt
 
       - name: Download pinned Liquid Glass assets
         shell: bash
