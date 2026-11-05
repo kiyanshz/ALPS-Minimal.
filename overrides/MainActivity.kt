@@ -299,12 +299,16 @@ class MainActivity : Activity() {
     }
 
     private fun openContacts() {
-        if (!launchSafely(Intent(Intent.ACTION_VIEW, ContactsContract.Contacts.CONTENT_URI), "برنامه مخاطبین پیدا نشد"))
+        val contactsIntent = Intent(Intent.ACTION_VIEW, ContactsContract.Contacts.CONTENT_URI)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        if (!launchSafely(contactsIntent, "برنامه مخاطبین پیدا نشد"))
             launchSafely(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_CONTACTS))
     }
 
     private fun openCallLog() {
-        if (!launchSafely(Intent(Intent.ACTION_VIEW, CallLog.Calls.CONTENT_URI), "نمایش سابقه تماس پشتیبانی نمی‌شود"))
+        val callLogIntent = Intent(Intent.ACTION_VIEW, CallLog.Calls.CONTENT_URI)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        if (!launchSafely(callLogIntent, "نمایش سابقه تماس پشتیبانی نمی‌شود"))
             openPhoneDialer()
     }
 
