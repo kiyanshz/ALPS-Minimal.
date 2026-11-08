@@ -3,6 +3,9 @@ package com.alps.minimal
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.asImageBitmap
 import android.Manifest
 import android.content.pm.PackageManager
@@ -104,7 +107,7 @@ private class LiquidGlassWallpaperDrawable : android.graphics.drawable.Drawable(
     override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 }
 
-class MediaAccessService : NotificationListenerService() {
+class MediaListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: android.service.notification.StatusBarNotification) {
         val notification = sbn.notification ?: return
         val extras = notification.extras ?: return
@@ -177,6 +180,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var homeCoverView: ImageView
     private lateinit var homePlayPauseButton: TextView
     private var activeController: MediaController? = null
+    private var nowPlayingRepo: NowPlayingRepo? = null
     private val composeNowPlayingState = mutableStateOf(NowPlaying())
     private val composeCallWindowState = mutableStateOf<CallWindowState?>(null)
     private var lastPhoneCallState = TelephonyManager.CALL_STATE_IDLE
@@ -377,18 +381,26 @@ class MainActivity : ComponentActivity() {
         handler.removeCallbacks(mediaTick)
 
         setContent {
+            val repo = remember {
+                NowPlayingRepo(applicationContext).also { nowPlayingRepo = it }
+            }
+            DisposableEffect(repo) {
+                repo.start()
+                onDispose { repo.stop() }
+            }
+            val nowPlaying by repo.state.collectAsState()
             CarPlayApp(
-                np = composeNowPlayingState.value,
-                onPlayPause = { togglePlayback() },
+                np = nowPlaying,
+                onPlayPause = {
+                    if (ensureNotificationAccess()) repo.playPause()
+                },
                 onNext = {
-                    activeController?.transportControls?.skipToNext()
-                    handler.postDelayed({ refreshMedia() }, 350)
+                    if (ensureNotificationAccess()) repo.next()
                 },
                 onPrev = {
-                    activeController?.transportControls?.skipToPrevious()
-                    handler.postDelayed({ refreshMedia() }, 350)
+                    if (ensureNotificationAccess()) repo.prev()
                 },
-                onSeek = { fraction -> seekToFraction(fraction) },
+                onSeek = repo::seek,
                 onOpenMap = { openNeshan() },
                 onAppClick = { name, pkg -> openCarPlayApp(name, pkg) },
                 mapFactory = { mapView },
@@ -611,6 +623,12 @@ class MainActivity : ComponentActivity() {
         return enabled.contains(packageName)
     }
 
+    private fun ensureNotificationAccess(): Boolean {
+        if (notificationAccessEnabled()) return true
+        tryStartActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        return false
+    }
+
     private var artworkRequestUri: String? = null
     private var artworkLoadedUri: String? = null
     private var artworkBitmap: Bitmap? = null
@@ -730,7 +748,7 @@ class MainActivity : ComponentActivity() {
         }
         try {
             val manager = getSystemService(MEDIA_SESSION_SERVICE) as MediaSessionManager
-            val sessions = manager.getActiveSessions(ComponentName(this, MediaAccessService::class.java))
+            val sessions = manager.getActiveSessions(ComponentName(this, MediaListener::class.java))
             val selected = sessions.firstOrNull {
                 it.playbackState?.state == PlaybackState.STATE_PLAYING
             } ?: sessions.firstOrNull {
@@ -759,8 +777,8 @@ class MainActivity : ComponentActivity() {
                 ?: metadata?.description?.iconUri?.toString()
             if (metadataArt == null && !artUri.isNullOrBlank()) loadArtworkFromUri(artUri)
             val uriArtwork = if (artUri != null && artUri == artworkLoadedUri) artworkBitmap else null
-            val notificationArtwork = MediaAccessService.latestArtwork
-                ?.takeIf { MediaAccessService.latestArtworkPackage == selected?.packageName }
+            val notificationArtwork = MediaListener.latestArtwork
+                ?.takeIf { MediaListener.latestArtworkPackage == selected?.packageName }
             val artworkKey = "${selected?.packageName.orEmpty()}|$title|$artist"
             val onlineArtwork = if (onlineArtworkLoadedKey == artworkKey) onlineArtworkBitmap else null
             val art = metadataArt ?: uriArtwork ?: notificationArtwork ?: onlineArtwork
@@ -991,6 +1009,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         mapView.onResume()
+        nowPlayingRepo?.refreshSessions()
         if (dashboardTab >= 0 && ::clockView.isInitialized) {
             handler.removeCallbacks(clockTick)
             handler.post(clockTick)

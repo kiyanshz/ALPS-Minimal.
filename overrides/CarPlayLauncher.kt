@@ -77,8 +77,12 @@ data class NowPlaying(
     val artist: String = "",
     val art: ImageBitmap? = null,
     val isPlaying: Boolean = false,
-    val progress: Float = 0f
-)
+    val durationMs: Long = 0L,
+    val positionMs: Long = 0L
+) {
+    val progress: Float
+        get() = if (durationMs > 0L) (positionMs / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
+}
 
 private fun findLauncherPackage(ctx: Context, keywords: List<String>): String? {
     val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
@@ -178,9 +182,13 @@ fun CarPlayApp(
     onOpenCallKeypad: () -> Unit = {}
 ) {
     var music by remember { mutableStateOf(false) }
+    var bluetooth by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize()) {
-        if (music) CarPlayMusicScreen(np, onPlayPause, onNext, onPrev, onSeek) { music = false }
-        else CarPlayRoot(np, onPlayPause, onNext, onPrev, onSeek, onOpenMap, { music = true }, onAppClick, mapFactory, onMapEvent)
+        when {
+            bluetooth -> BluetoothScreen { bluetooth = false }
+            music -> CarPlayMusicScreen(np, onPlayPause, onNext, onPrev, onSeek) { music = false }
+            else -> CarPlayRoot(np, onPlayPause, onNext, onPrev, onSeek, onOpenMap, { music = true }, { bluetooth = true }, onAppClick, mapFactory, onMapEvent)
+        }
         AnimatedVisibility(
             visible = callWindow != null,
             modifier = Modifier.fillMaxSize(),
@@ -207,6 +215,7 @@ fun CarPlayApp(
 private fun CarPlayRoot(
     np: NowPlaying, onPlayPause: () -> Unit, onNext: () -> Unit, onPrev: () -> Unit,
     onSeek: (Float) -> Unit, onOpenMap: () -> Unit, onOpenMusic: () -> Unit,
+    onOpenBluetooth: () -> Unit,
     onAppClick: (String, String?) -> Unit,
     mapFactory: ((Context) -> View)?, onMapEvent: ((View, Lifecycle.Event) -> Unit)?
 ) {
@@ -217,7 +226,7 @@ private fun CarPlayRoot(
         Column(Modifier.weight(1f).fillMaxHeight()) {
             HorizontalPager(state = pager, modifier = Modifier.weight(1f), flingBehavior = pagerFling,
                 key = { page -> page }) { page ->
-                if (page == 0) AppsGrid(onOpenMusic, onAppClick)
+                if (page == 0) AppsGrid(onOpenMusic, onOpenBluetooth, onAppClick)
                 else Row(Modifier.fillMaxSize().padding(24.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                     MapCard(Modifier.weight(1.4f).fillMaxHeight(), onOpenMap, mapFactory, onMapEvent)
                     MusicCard(Modifier.weight(1f).fillMaxHeight(), np, onPlayPause, onNext, onPrev, onOpenMusic)
@@ -275,7 +284,7 @@ private fun SideBtn(icon: ImageVector, onClick: () -> Unit = {}) {
 }
 
 @Composable
-private fun AppsGrid(onOpenMusic: () -> Unit, onAppClick: (String, String?) -> Unit) {
+private fun AppsGrid(onOpenMusic: () -> Unit, onOpenBluetooth: () -> Unit, onAppClick: (String, String?) -> Unit) {
     val ctx = LocalContext.current
     val apps = remember(ctx) { carApps(ctx) }
     LazyVerticalGrid(
@@ -286,6 +295,7 @@ private fun AppsGrid(onOpenMusic: () -> Unit, onAppClick: (String, String?) -> U
             AppCell(app) {
                 when (app.name) {
                     "موسیقی" -> onOpenMusic()
+                    "بلوتوث" -> onOpenBluetooth()
                     else -> onAppClick(app.name, app.pkg)
                 }
             }
@@ -393,6 +403,10 @@ fun CarPlayMusicScreen(
                 Text(np.artist, color = Color.White.copy(alpha = .6f), fontSize = 22.sp, maxLines = 1)
                 Spacer(Modifier.height(14.dp))
                 SeekBar(np.progress, onSeek)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(formatMediaTime(np.positionMs), color = Color.White.copy(alpha = .6f), fontSize = 14.sp)
+                    Text(formatMediaTime(np.durationMs), color = Color.White.copy(alpha = .6f), fontSize = 14.sp)
+                }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                 Ctrl(Icons.Rounded.SkipPrevious, 48.dp, onPrev)
@@ -655,4 +669,10 @@ private fun CallActionButton(
         Spacer(Modifier.height(3.dp))
         Text(label, color = Color.White.copy(alpha = 0.88f), fontSize = 11.sp, maxLines = 1)
     }
+}
+
+
+private fun formatMediaTime(milliseconds: Long): String {
+    val seconds = (milliseconds / 1000L).coerceAtLeast(0L)
+    return "%d:%02d".format(seconds / 60L, seconds % 60L)
 }
