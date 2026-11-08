@@ -179,6 +179,7 @@ class MainActivity : ComponentActivity() {
     private var activeController: MediaController? = null
     private val composeNowPlayingState = mutableStateOf(NowPlaying())
     private val composeCallWindowState = mutableStateOf<CallWindowState?>(null)
+    private val composeBluetoothScreenState = mutableStateOf(false)
     private var lastPhoneCallState = TelephonyManager.CALL_STATE_IDLE
     private var phoneStateListener: PhoneStateListener? = null
     private var userSeeking = false
@@ -377,6 +378,9 @@ class MainActivity : ComponentActivity() {
         handler.removeCallbacks(mediaTick)
 
         setContent {
+            if (composeBluetoothScreenState.value) {
+                BluetoothScreen(onBack = { composeBluetoothScreenState.value = false })
+            } else {
             CarPlayApp(
                 np = composeNowPlayingState.value,
                 onPlayPause = { togglePlayback() },
@@ -390,7 +394,7 @@ class MainActivity : ComponentActivity() {
                 },
                 onSeek = { fraction -> seekToFraction(fraction) },
                 onOpenMap = { openNeshan() },
-                onAppClick = { name, pkg -> openCarPlayApp(name, pkg) },
+                onAppClick = { name, pkg -> if (name == "بلوتوث") composeBluetoothScreenState.value = true else openCarPlayApp(name, pkg) },
                 mapFactory = { mapView },
                 onMapEvent = null,
                 callWindow = composeCallWindowState.value,
@@ -399,6 +403,7 @@ class MainActivity : ComponentActivity() {
                 onSwitchCallAudio = { tryStartActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) },
                 onOpenCallKeypad = { tryStartActivity(Intent(Intent.ACTION_DIAL)) }
             )
+            }
         }
 
         startLocationUpdates()
@@ -433,8 +438,7 @@ class MainActivity : ComponentActivity() {
                 )) || launchPackageSafely(pkg)
             "دوربین" -> launchPackageSafely(pkg) ||
                 tryStartActivity(Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE))
-            "بلوتوث" -> tryStartActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) ||
-                launchPackageSafely(pkg)
+            "بلوتوث" -> false
             "هوا" -> launchPackageSafely(pkg)
             "تقویم" -> launchCategorySafely("android.intent.category.APP_CALENDAR") ||
                 launchPackageSafely(pkg) ||
