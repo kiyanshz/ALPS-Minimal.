@@ -794,7 +794,8 @@ class MainActivity : ComponentActivity() {
                 artist = artist,
                 art = art?.asImageBitmap(),
                 isPlaying = playing,
-                progress = if (lastDuration > 0L) (currentPosition.toFloat() / lastDuration.toFloat()).coerceIn(0f, 1f) else 0f
+                durationMs = lastDuration,
+                positionMs = if (lastDuration > 0L) currentPosition.coerceAtMost(lastDuration) else currentPosition
             )
             if (::homeTrackTitle.isInitialized) {
                 homeTrackTitle.text = title
