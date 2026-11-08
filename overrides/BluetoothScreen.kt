@@ -154,7 +154,7 @@ class BtController(private val context: Context) {
                             proxy.javaClass.getMethod(if (connect) "connect" else "disconnect", BluetoothDevice::class.java)
                                 .invoke(proxy, device)
                         }
-                        adapter.closeProfileProxy(profileId, proxy)
+                        adapter?.closeProfileProxy(profileId, proxy)
                     }
                     override fun onServiceDisconnected(profileId: Int) {}
                 }, profile)
