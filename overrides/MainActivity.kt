@@ -388,7 +388,7 @@ class MainActivity : ComponentActivity() {
                 repo.start()
                 onDispose { repo.stop() }
             }
-            val nowPlaying by repo.state.collectAsState()
+            val nowPlaying = repo.state.collectAsState().value
             CarPlayApp(
                 np = nowPlaying,
                 onPlayPause = {
