@@ -427,7 +427,7 @@ fun CarPlayMusicScreen(
                             onDismissRequest = { boosterMenu = false },
                             properties = PopupProperties(focusable = true)
                         ) {
-                            AnimatedVisibility(
+                            androidx.compose.animation.AnimatedVisibility(
                                 visible = boosterMenu,
                                 enter = fadeIn(tween(160)) + slideInVertically(
                                     initialOffsetY = { -it / 12 },
