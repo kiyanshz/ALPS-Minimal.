@@ -11,6 +11,10 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -34,11 +38,12 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
@@ -174,10 +179,6 @@ fun CarPlayApp(
     volume: Int = 0,
     maxVolume: Int = 30,
     onVolumeChange: (Int) -> Unit = {},
-    boosterEnabled: Boolean = false,
-    boosterGainDb: Float = 6f,
-    onBoosterToggle: (Boolean) -> Unit = {},
-    onBoosterGainChange: (Float) -> Unit = {},
     onOpenMap: () -> Unit,
     onAppClick: (String, String?) -> Unit,
     mapFactory: ((Context) -> View)? = null,
@@ -192,8 +193,7 @@ fun CarPlayApp(
     Box(Modifier.fillMaxSize()) {
         if (music) CarPlayMusicScreen(
             np, onPlayPause, onNext, onPrev, onSeek,
-            volume, maxVolume, onVolumeChange, boosterEnabled, boosterGainDb,
-            onBoosterToggle, onBoosterGainChange
+            volume, maxVolume, onVolumeChange
         ) { music = false }
         else CarPlayRoot(np, onPlayPause, onNext, onPrev, onSeek, onOpenMap, { music = true }, onAppClick, mapFactory, onMapEvent)
         AnimatedVisibility(
@@ -396,65 +396,96 @@ fun CarPlayMusicScreen(
     np: NowPlaying, onPlayPause: () -> Unit, onNext: () -> Unit, onPrev: () -> Unit,
     onSeek: (Float) -> Unit,
     volume: Int, maxVolume: Int, onVolumeChange: (Int) -> Unit,
-    boosterEnabled: Boolean, boosterGainDb: Float,
-    onBoosterToggle: (Boolean) -> Unit, onBoosterGainChange: (Float) -> Unit,
     onBack: () -> Unit
 ) {
     Row(Modifier.fillMaxSize().background(BgBrush).padding(36.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
         Art(np.art, Modifier.fillMaxHeight().aspectRatio(1f))
         Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
             var boosterMenu by remember { mutableStateOf(false) }
+            var boosterMenuMounted by remember { mutableStateOf(false) }
+            val context = LocalContext.current
+            LaunchedEffect(boosterMenu) {
+                if (boosterMenu) boosterMenuMounted = true
+                else {
+                    delay(180)
+                    boosterMenuMounted = false
+                }
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                 Box {
-                    Box(Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = if (boosterEnabled) .24f else .12f))
+                    Box(Modifier.size(60.dp).clip(CircleShape)
+                        .background(Color.White.copy(alpha = .12f))
                         .clickable { boosterMenu = true }, contentAlignment = Alignment.Center) {
                         Icon(Icons.Rounded.GraphicEq, "Volume Booster", tint = Color.White)
                     }
-                    DropdownMenu(
-                        expanded = boosterMenu,
-                        onDismissRequest = { boosterMenu = false }
-                    ) {
-                        Surface(
-                            modifier = Modifier.width(270.dp),
-                            color = Color(0xFF101A2B),
-                            shape = RoundedCornerShape(18.dp),
-                            shadowElevation = 14.dp
+                    if (boosterMenuMounted) {
+                        Popup(
+                            alignment = Alignment.TopEnd,
+                            offset = IntOffset(0, 70),
+                            onDismissRequest = { boosterMenu = false },
+                            properties = PopupProperties(focusable = true)
                         ) {
-                        Column(
-                            Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text("Volume Booster", color = Color(0xFFF3F6FC), fontWeight = FontWeight.SemiBold)
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("غیرفعال", color = Color(0xFF9EACC2))
-                                Switch(
-                                    checked = false,
-                                    onCheckedChange = { onBoosterToggle(false) },
-                                    enabled = false
+                            AnimatedVisibility(
+                                visible = boosterMenu,
+                                enter = fadeIn(tween(170)) + scaleIn(
+                                    initialScale = .94f,
+                                    animationSpec = tween(220, easing = FastOutSlowInEasing)
+                                ),
+                                exit = fadeOut(tween(140)) + scaleOut(
+                                    targetScale = .97f,
+                                    animationSpec = tween(140)
                                 )
+                            ) {
+                                Surface(
+                                    modifier = Modifier.width(300.dp)
+                                        .border(1.dp, Color.White.copy(alpha = .10f), RoundedCornerShape(22.dp)),
+                                    color = Color(0xF20B1425),
+                                    shape = RoundedCornerShape(22.dp),
+                                    shadowElevation = 18.dp
+                                ) {
+                                    Column(
+                                        Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Text("Volume Booster", color = Color(0xFFF3F6FC),
+                                            fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                                        Text(
+                                            "کنترل حجم صدای خروجی",
+                                            color = Color(0xFF9EACC2), fontSize = 12.sp
+                                        )
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text("صدای رسانه", color = Color(0xFFDCE7F7), fontSize = 13.sp)
+                                            Text("$volume / $maxVolume", color = Color(0xFFDCE7F7), fontSize = 13.sp)
+                                        }
+                                        Slider(
+                                            value = volume.coerceIn(0, maxVolume.coerceAtLeast(1)).toFloat(),
+                                            onValueChange = { onVolumeChange(it.toInt()) },
+                                            valueRange = 0f..maxVolume.coerceAtLeast(1).toFloat()
+                                        )
+                                        Text(
+                                            "تقویت مستقل صدای بلوتوث از داخل لانچر در دسترس نیست؛ این کنترل، صدای رسانهٔ اندروید را تنظیم می‌کند.",
+                                            color = Color(0xFF9EACC2), fontSize = 11.sp, lineHeight = 16.sp
+                                        )
+                                        Box(
+                                            Modifier.fillMaxWidth().clip(RoundedCornerShape(13.dp))
+                                                .background(Color.White.copy(alpha = .09f))
+                                                .clickable {
+                                                    val opened = runCatching {
+                                                        context.startActivity(Intent(android.provider.Settings.ACTION_SOUND_SETTINGS))
+                                                    }.isSuccess
+                                                    if (!opened) runCatching {
+                                                        context.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+                                                    }
+                                                }
+                                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text("تنظیمات صدای مانیتور", color = Color.White,
+                                                fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                        }
+                                    }
+                                }
                             }
-                            Text(
-                                "تقویت: +${boosterGainDb.toInt()} dB",
-                                color = Color(0xFFDCE7F7),
-                                fontSize = 13.sp
-                            )
-                            Slider(
-                                value = boosterGainDb.coerceIn(0f, 12f),
-                                onValueChange = onBoosterGainChange,
-                                valueRange = 0f..12f,
-                                enabled = false
-                            )
-                            Text(
-                                "برای جلوگیری از اکو و اعوجاج، بوست سراسری تا زمان دسترسی به مسیر صوتی واقعی غیرفعال است.",
-                                color = Color(0xFF9EACC2),
-                                fontSize = 11.sp,
-                                lineHeight = 16.sp
-                            )
-                        }
                         }
                     }
                 }
