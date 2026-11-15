@@ -26,6 +26,8 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.BitmapDrawable
 import android.media.MediaMetadata
+import android.media.AudioManager
+import android.media.audiofx.LoudnessEnhancer
 import android.media.session.MediaController
 import android.media.session.PlaybackState
 import android.media.session.MediaSessionManager
@@ -177,6 +179,12 @@ class MainActivity : ComponentActivity() {
     private lateinit var homeCoverView: ImageView
     private lateinit var homePlayPauseButton: TextView
     private var activeController: MediaController? = null
+    private val audioManager by lazy { getSystemService(AUDIO_SERVICE) as AudioManager }
+    private val composeMusicVolume = mutableStateOf(0)
+    private val composeMaxMusicVolume = mutableStateOf(30)
+    private val composeBoosterEnabled = mutableStateOf(false)
+    private val composeBoosterGainDb = mutableStateOf(6f)
+    private var loudnessEnhancer: LoudnessEnhancer? = null
     private val composeNowPlayingState = mutableStateOf(NowPlaying())
     private val composeCallWindowState = mutableStateOf<CallWindowState?>(null)
     private val composeBluetoothScreenState = mutableStateOf(false)
@@ -237,12 +245,14 @@ class MainActivity : ComponentActivity() {
         override fun run() {
             refreshMedia()
             updatePosition()
+            syncMusicVolume()
             handler.postDelayed(this, 900)
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        syncMusicVolume()
         window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_FULLSCREEN or
             View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
@@ -393,6 +403,13 @@ class MainActivity : ComponentActivity() {
                     handler.postDelayed({ refreshMedia() }, 350)
                 },
                 onSeek = { fraction -> seekToFraction(fraction) },
+                volume = composeMusicVolume.value,
+                maxVolume = composeMaxMusicVolume.value,
+                onVolumeChange = { setMusicVolume(it) },
+                boosterEnabled = composeBoosterEnabled.value,
+                boosterGainDb = composeBoosterGainDb.value,
+                onBoosterToggle = { setBoosterEnabled(it) },
+                onBoosterGainChange = { setBoosterGain(it) },
                 onOpenMap = { openNeshan() },
                 onAppClick = { name, pkg -> if (name == "بلوتوث") composeBluetoothScreenState.value = true else openCarPlayApp(name, pkg) },
                 mapFactory = { mapView },
@@ -410,6 +427,49 @@ class MainActivity : ComponentActivity() {
         handler.post(mediaTick)
     }
 
+
+    private fun syncMusicVolume() {
+        runCatching {
+            val maximum = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+            val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).coerceIn(0, maximum)
+            composeMaxMusicVolume.value = maximum
+            composeMusicVolume.value = current
+        }
+    }
+
+    private fun setMusicVolume(value: Int) {
+        runCatching {
+            val maximum = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, value.coerceIn(0, maximum), 0)
+            syncMusicVolume()
+        }
+    }
+
+    private fun setBoosterEnabled(enabled: Boolean) {
+        if (!enabled) {
+            runCatching { loudnessEnhancer?.enabled = false }
+            composeBoosterEnabled.value = false
+            return
+        }
+        try {
+            val effect = loudnessEnhancer ?: LoudnessEnhancer(0).also { loudnessEnhancer = it }
+            effect.setTargetGain((composeBoosterGainDb.value.coerceIn(0f, 12f) * 100f).toInt())
+            effect.enabled = true
+            composeBoosterEnabled.value = effect.enabled
+            if (!effect.enabled) throw IllegalStateException("Loudness enhancer could not be enabled")
+        } catch (_: Exception) {
+            composeBoosterEnabled.value = false
+            Toast.makeText(this, "تقویت‌کنندهٔ سراسری صدا در این مانیتور پشتیبانی نمی‌شود", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun setBoosterGain(gainDb: Float) {
+        val safeGain = gainDb.coerceIn(0f, 12f)
+        composeBoosterGainDb.value = safeGain
+        if (composeBoosterEnabled.value) {
+            runCatching { loudnessEnhancer?.setTargetGain((safeGain * 100f).toInt()) }
+        }
+    }
 
     private fun tryStartActivity(intent: Intent): Boolean =
         try { startActivity(intent); true } catch (_: Exception) { false }
@@ -1017,6 +1077,8 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         stopLocationUpdates()
+        runCatching { loudnessEnhancer?.release() }
+        loudnessEnhancer = null
         mapView.onDestroy()
         super.onDestroy()
     }

@@ -33,6 +33,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -167,6 +170,13 @@ fun CarPlayApp(
     onNext: () -> Unit,
     onPrev: () -> Unit,
     onSeek: (Float) -> Unit,
+    volume: Int = 0,
+    maxVolume: Int = 30,
+    onVolumeChange: (Int) -> Unit = {},
+    boosterEnabled: Boolean = false,
+    boosterGainDb: Float = 6f,
+    onBoosterToggle: (Boolean) -> Unit = {},
+    onBoosterGainChange: (Float) -> Unit = {},
     onOpenMap: () -> Unit,
     onAppClick: (String, String?) -> Unit,
     mapFactory: ((Context) -> View)? = null,
@@ -179,7 +189,11 @@ fun CarPlayApp(
 ) {
     var music by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize()) {
-        if (music) CarPlayMusicScreen(np, onPlayPause, onNext, onPrev, onSeek) { music = false }
+        if (music) CarPlayMusicScreen(
+            np, onPlayPause, onNext, onPrev, onSeek,
+            volume, maxVolume, onVolumeChange, boosterEnabled, boosterGainDb,
+            onBoosterToggle, onBoosterGainChange
+        ) { music = false }
         else CarPlayRoot(np, onPlayPause, onNext, onPrev, onSeek, onOpenMap, { music = true }, onAppClick, mapFactory, onMapEvent)
         AnimatedVisibility(
             visible = callWindow != null,
@@ -379,12 +393,38 @@ private fun MusicCard(
 @Composable
 fun CarPlayMusicScreen(
     np: NowPlaying, onPlayPause: () -> Unit, onNext: () -> Unit, onPrev: () -> Unit,
-    onSeek: (Float) -> Unit, onBack: () -> Unit
+    onSeek: (Float) -> Unit,
+    volume: Int, maxVolume: Int, onVolumeChange: (Int) -> Unit,
+    boosterEnabled: Boolean, boosterGainDb: Float,
+    onBoosterToggle: (Boolean) -> Unit, onBoosterGainChange: (Float) -> Unit,
+    onBack: () -> Unit
 ) {
     Row(Modifier.fillMaxSize().background(BgBrush).padding(36.dp), horizontalArrangement = Arrangement.spacedBy(40.dp)) {
         Art(np.art, Modifier.fillMaxHeight().aspectRatio(1f))
         Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            var boosterMenu by remember { mutableStateOf(false) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                Box {
+                    Box(Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = if (boosterEnabled) .24f else .12f))
+                        .clickable { boosterMenu = true }, contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.GraphicEq, "Volume Booster", tint = Color.White)
+                    }
+                    DropdownMenu(expanded = boosterMenu, onDismissRequest = { boosterMenu = false }) {
+                        Column(Modifier.width(250.dp).padding(horizontal = 16.dp, vertical = 10.dp)) {
+                            Text("Volume Booster", color = Color(0xFF172033), fontWeight = FontWeight.SemiBold)
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(if (boosterEnabled) "روشن" else "خاموش", color = Color(0xFF172033))
+                                Switch(checked = boosterEnabled, onCheckedChange = onBoosterToggle)
+                            }
+                            Text("تقویت: +\u0024{boosterGainDb.toInt()} dB", color = Color(0xFF344054), fontSize = 13.sp)
+                            Slider(value = boosterGainDb.coerceIn(0f, 12f), onValueChange = onBoosterGainChange,
+                                valueRange = 0f..12f, enabled = boosterEnabled)
+                            Text("در صورت خش‌دار شدن صدا، تقویت را کاهش بده.", color = Color(0xFF667085), fontSize = 11.sp)
+                        }
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
                 Box(Modifier.size(60.dp).clip(CircleShape).background(Color.White.copy(alpha = .12f)).clickable(onClick = onBack),
                     contentAlignment = Alignment.Center) { Icon(Icons.Rounded.GridView, null, tint = Color.White) }
             }
@@ -393,6 +433,19 @@ fun CarPlayMusicScreen(
                 Text(np.artist, color = Color.White.copy(alpha = .6f), fontSize = 22.sp, maxLines = 1)
                 Spacer(Modifier.height(14.dp))
                 SeekBar(np.progress, onSeek)
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.VolumeDown, null, tint = Color.White.copy(alpha = .8f), modifier = Modifier.size(22.dp))
+                    Slider(
+                        value = volume.toFloat().coerceIn(0f, maxVolume.coerceAtLeast(1).toFloat()),
+                        onValueChange = { onVolumeChange(it.toInt()) },
+                        valueRange = 0f..maxVolume.coerceAtLeast(1).toFloat(),
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(Icons.Rounded.VolumeUp, null, tint = Color.White.copy(alpha = .8f), modifier = Modifier.size(22.dp))
+                    Text("$volume/$maxVolume", color = Color.White.copy(alpha = .65f), fontSize = 12.sp,
+                        modifier = Modifier.padding(start = 8.dp))
+                }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                 Ctrl(Icons.Rounded.SkipPrevious, 48.dp, onPrev)
