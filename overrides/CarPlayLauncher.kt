@@ -409,18 +409,48 @@ fun CarPlayMusicScreen(
                         .clickable { boosterMenu = true }, contentAlignment = Alignment.Center) {
                         Icon(Icons.Rounded.GraphicEq, "Volume Booster", tint = Color.White)
                     }
-                    DropdownMenu(expanded = boosterMenu, onDismissRequest = { boosterMenu = false }) {
-                        Column(Modifier.width(250.dp).padding(horizontal = 16.dp, vertical = 10.dp)) {
-                            Text("Volume Booster", color = Color(0xFF172033), fontWeight = FontWeight.SemiBold)
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(if (boosterEnabled) "روشن" else "خاموش", color = Color(0xFF172033))
-                                Switch(checked = boosterEnabled, onCheckedChange = onBoosterToggle)
+                    DropdownMenu(
+                        expanded = boosterMenu,
+                        onDismissRequest = { boosterMenu = false },
+                        containerColor = Color(0xFF101A2B),
+                        tonalElevation = 8.dp,
+                        shadowElevation = 14.dp,
+                        shape = RoundedCornerShape(18.dp)
+                    ) {
+                        Column(
+                            Modifier.width(270.dp).padding(horizontal = 18.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("Volume Booster", color = Color(0xFFF3F6FC), fontWeight = FontWeight.SemiBold)
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("غیرفعال", color = Color(0xFF9EACC2))
+                                Switch(
+                                    checked = false,
+                                    onCheckedChange = { onBoosterToggle(false) },
+                                    enabled = false
+                                )
                             }
-                            Text("تقویت: +\u0024{boosterGainDb.toInt()} dB", color = Color(0xFF344054), fontSize = 13.sp)
-                            Slider(value = boosterGainDb.coerceIn(0f, 12f), onValueChange = onBoosterGainChange,
-                                valueRange = 0f..12f, enabled = boosterEnabled)
-                            Text("در صورت خش‌دار شدن صدا، تقویت را کاهش بده.", color = Color(0xFF667085), fontSize = 11.sp)
+                            Text(
+                                "تقویت: +${boosterGainDb.toInt()} dB",
+                                color = Color(0xFFDCE7F7),
+                                fontSize = 13.sp
+                            )
+                            Slider(
+                                value = boosterGainDb.coerceIn(0f, 12f),
+                                onValueChange = onBoosterGainChange,
+                                valueRange = 0f..12f,
+                                enabled = false
+                            )
+                            Text(
+                                "برای جلوگیری از اکو و اعوجاج، بوست سراسری تا زمان دسترسی به مسیر صوتی واقعی غیرفعال است.",
+                                color = Color(0xFF9EACC2),
+                                fontSize = 11.sp,
+                                lineHeight = 16.sp
+                            )
                         }
                     }
                 }
