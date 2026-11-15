@@ -27,7 +27,6 @@ import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.BitmapDrawable
 import android.media.MediaMetadata
 import android.media.AudioManager
-import android.media.audiofx.LoudnessEnhancer
 import android.media.session.MediaController
 import android.media.session.PlaybackState
 import android.media.session.MediaSessionManager
@@ -184,7 +183,6 @@ class MainActivity : ComponentActivity() {
     private val composeMaxMusicVolume = mutableStateOf(30)
     private val composeBoosterEnabled = mutableStateOf(false)
     private val composeBoosterGainDb = mutableStateOf(6f)
-    private var loudnessEnhancer: LoudnessEnhancer? = null
     private val composeNowPlayingState = mutableStateOf(NowPlaying())
     private val composeCallWindowState = mutableStateOf<CallWindowState?>(null)
     private val composeBluetoothScreenState = mutableStateOf(false)
@@ -446,29 +444,24 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun setBoosterEnabled(enabled: Boolean) {
-        if (!enabled) {
-            runCatching { loudnessEnhancer?.enabled = false }
-            composeBoosterEnabled.value = false
-            return
-        }
-        try {
-            val effect = loudnessEnhancer ?: LoudnessEnhancer(0).also { loudnessEnhancer = it }
-            effect.setTargetGain((composeBoosterGainDb.value.coerceIn(0f, 12f) * 100f).toInt())
-            effect.enabled = true
-            composeBoosterEnabled.value = effect.enabled
-            if (!effect.enabled) throw IllegalStateException("Loudness enhancer could not be enabled")
-        } catch (_: Exception) {
-            composeBoosterEnabled.value = false
-            Toast.makeText(this, "تقویت‌کنندهٔ سراسری صدا در این مانیتور پشتیبانی نمی‌شود", Toast.LENGTH_LONG).show()
+        // This launcher controls media sessions owned by other apps. It does not own
+        // their AudioTrack/MediaPlayer session, so a global session-0 effect is unsafe
+        // and deprecated on Android. Keep the control explicitly unavailable rather
+        // than applying an effect that can distort the head unit's mixed output.
+        composeBoosterEnabled.value = false
+        if (enabled) {
+            Toast.makeText(
+                this,
+                "بوست سراسری برای پخش بلوتوث و برنامه‌های دیگر در اندروید پشتیبانی مطمئن ندارد",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
     private fun setBoosterGain(gainDb: Float) {
-        val safeGain = gainDb.coerceIn(0f, 12f)
-        composeBoosterGainDb.value = safeGain
-        if (composeBoosterEnabled.value) {
-            runCatching { loudnessEnhancer?.setTargetGain((safeGain * 100f).toInt()) }
-        }
+        // Retain the user's selected UI value, but do not apply an unsupported
+        // global audio effect to other applications' playback.
+        composeBoosterGainDb.value = gainDb.coerceIn(0f, 12f)
     }
 
     private fun tryStartActivity(intent: Intent): Boolean =
