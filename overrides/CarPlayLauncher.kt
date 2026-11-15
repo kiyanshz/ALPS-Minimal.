@@ -15,6 +15,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -415,7 +417,7 @@ fun CarPlayMusicScreen(
                 Box {
                     Box(Modifier.size(60.dp).clip(CircleShape)
                         .background(Color.White.copy(alpha = .12f))
-                        .clickable { boosterMenu = true }, contentAlignment = Alignment.Center) {
+                        .clickable { boosterMenu = !boosterMenu }, contentAlignment = Alignment.Center) {
                         Icon(Icons.Rounded.GraphicEq, "Volume Booster", tint = Color.White)
                     }
                     if (boosterMenuMounted) {
@@ -427,13 +429,13 @@ fun CarPlayMusicScreen(
                         ) {
                             AnimatedVisibility(
                                 visible = boosterMenu,
-                                enter = fadeIn(tween(170)) + scaleIn(
-                                    initialScale = .94f,
-                                    animationSpec = tween(220, easing = FastOutSlowInEasing)
+                                enter = fadeIn(tween(160)) + slideInVertically(
+                                    initialOffsetY = { -it / 12 },
+                                    animationSpec = tween(190, easing = FastOutSlowInEasing)
                                 ),
-                                exit = fadeOut(tween(140)) + scaleOut(
-                                    targetScale = .97f,
-                                    animationSpec = tween(140)
+                                exit = fadeOut(tween(120)) + slideOutVertically(
+                                    targetOffsetY = { -it / 16 },
+                                    animationSpec = tween(130, easing = FastOutSlowInEasing)
                                 )
                             ) {
                                 Surface(
