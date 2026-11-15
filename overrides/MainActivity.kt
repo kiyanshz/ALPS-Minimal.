@@ -181,8 +181,6 @@ class MainActivity : ComponentActivity() {
     private val audioManager by lazy { getSystemService(AUDIO_SERVICE) as AudioManager }
     private val composeMusicVolume = mutableStateOf(0)
     private val composeMaxMusicVolume = mutableStateOf(30)
-    private val composeBoosterEnabled = mutableStateOf(false)
-    private val composeBoosterGainDb = mutableStateOf(6f)
     private val composeNowPlayingState = mutableStateOf(NowPlaying())
     private val composeCallWindowState = mutableStateOf<CallWindowState?>(null)
     private val composeBluetoothScreenState = mutableStateOf(false)
@@ -404,10 +402,6 @@ class MainActivity : ComponentActivity() {
                 volume = composeMusicVolume.value,
                 maxVolume = composeMaxMusicVolume.value,
                 onVolumeChange = { setMusicVolume(it) },
-                boosterEnabled = composeBoosterEnabled.value,
-                boosterGainDb = composeBoosterGainDb.value,
-                onBoosterToggle = { setBoosterEnabled(it) },
-                onBoosterGainChange = { setBoosterGain(it) },
                 onOpenMap = { openNeshan() },
                 onAppClick = { name, pkg -> if (name == "بلوتوث") composeBluetoothScreenState.value = true else openCarPlayApp(name, pkg) },
                 mapFactory = { mapView },
@@ -441,27 +435,6 @@ class MainActivity : ComponentActivity() {
             audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, value.coerceIn(0, maximum), 0)
             syncMusicVolume()
         }
-    }
-
-    private fun setBoosterEnabled(enabled: Boolean) {
-        // This launcher controls media sessions owned by other apps. It does not own
-        // their AudioTrack/MediaPlayer session, so a global session-0 effect is unsafe
-        // and deprecated on Android. Keep the control explicitly unavailable rather
-        // than applying an effect that can distort the head unit's mixed output.
-        composeBoosterEnabled.value = false
-        if (enabled) {
-            Toast.makeText(
-                this,
-                "بوست سراسری برای پخش بلوتوث و برنامه‌های دیگر در اندروید پشتیبانی مطمئن ندارد",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
-    private fun setBoosterGain(gainDb: Float) {
-        // Retain the user's selected UI value, but do not apply an unsupported
-        // global audio effect to other applications' playback.
-        composeBoosterGainDb.value = gainDb.coerceIn(0f, 12f)
     }
 
     private fun tryStartActivity(intent: Intent): Boolean =
