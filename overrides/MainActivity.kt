@@ -1070,8 +1070,6 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         stopLocationUpdates()
-        runCatching { loudnessEnhancer?.release() }
-        loudnessEnhancer = null
         mapView.onDestroy()
         super.onDestroy()
     }
