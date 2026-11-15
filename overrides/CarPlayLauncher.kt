@@ -411,14 +411,16 @@ fun CarPlayMusicScreen(
                     }
                     DropdownMenu(
                         expanded = boosterMenu,
-                        onDismissRequest = { boosterMenu = false },
-                        containerColor = Color(0xFF101A2B),
-                        tonalElevation = 8.dp,
-                        shadowElevation = 14.dp,
-                        shape = RoundedCornerShape(18.dp)
+                        onDismissRequest = { boosterMenu = false }
                     ) {
+                        Surface(
+                            modifier = Modifier.width(270.dp),
+                            color = Color(0xFF101A2B),
+                            shape = RoundedCornerShape(18.dp),
+                            shadowElevation = 14.dp
+                        ) {
                         Column(
-                            Modifier.width(270.dp).padding(horizontal = 18.dp, vertical = 14.dp),
+                            Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text("Volume Booster", color = Color(0xFFF3F6FC), fontWeight = FontWeight.SemiBold)
@@ -451,6 +453,7 @@ fun CarPlayMusicScreen(
                                 fontSize = 11.sp,
                                 lineHeight = 16.sp
                             )
+                        }
                         }
                     }
                 }
