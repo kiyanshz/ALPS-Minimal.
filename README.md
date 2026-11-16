@@ -3,9 +3,10 @@
 ALPS is a landscape-first Android cockpit launcher with a clean, CarPlay-inspired interface for vehicle head units.
 
 ## Included
-- Two-panel dashboard with live Music controls and a map panel; selecting MAP opens the installed Neshan app.
+- Two-page landscape cockpit: searchable app grid and a combined Neshan map / live music widget page, with horizontal swipe navigation.
+- Liquid Glass side rail, clock/date header, and passive Zlink connection-status bridge.
 - Live GPS position marker in the embedded map panel; no coordinate text overlay.
-- Android media-session controls, album artwork, track metadata, progress and transport controls.
+- Android media-session fallback for track metadata, album artwork, progress and transport controls. Direct iAP2 metadata/artwork ingestion is an integration task, not yet active.
 - Five-column app drawer with live search and touch feedback.
 - iOS 26 Liquid Glass-inspired app icons for supported app categories, with original app icons retained as fallback.
 - Dark navy abstract wallpaper and custom ALPS launcher mark.
@@ -29,5 +30,8 @@ A successful GitHub Actions build confirms compilation, APK packaging, signature
 ## Project layout
 - `overrides/MainActivity.kt` — dashboard, Neshan map, GPS, and media controls.
 - `overrides/AppAdapter.kt` — app drawer and Liquid Glass icon mapping.
+- `overrides/ZlinkBridge.kt` — passive Zlink connection-state observer.
+- `overrides/CarPlayNowPlaying.kt` — canonical partial-update media model and verified iAP2 message identifiers.
+- `overrides/CarPlayUiComponents.kt` — horizontal two-page cockpit pager.
 - `overrides/res/` — layouts, launcher mark, and glass UI resources.
 - `.github/workflows/build.yml` — reproducible Android build and asset packaging.
