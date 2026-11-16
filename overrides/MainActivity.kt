@@ -239,6 +239,8 @@ class MainActivity : Activity() {
     private var appsNowPlayingArtist: TextView? = null
     private val volumeBooster = VolumeBooster()
     private lateinit var audioBoosterDialog: AudioBoosterDialog
+    private lateinit var zlinkBridge: ZlinkBridge
+    private var zlinkStatusView: TextView? = null
 
     private lateinit var mapView: MapView
     private lateinit var clockView: TextView
@@ -323,6 +325,12 @@ class MainActivity : Activity() {
         MapLibre.getInstance(this)
         audioBoosterDialog = AudioBoosterDialog(this, volumeBooster)
         audioBoosterDialog.restore()
+        zlinkBridge = ZlinkBridge(this) { status ->
+            handler.post {
+                zlinkStatusView?.text = status.displayLabel()
+                zlinkStatusView?.setTextColor(if (status.connected) Color.rgb(142, 224, 184) else Color.rgb(170, 184, 205))
+            }
+        }
         mapView = MapView(this)
         mapView.onCreate(savedInstanceState)
         mapView.getMapAsync { map ->
@@ -650,8 +658,278 @@ class MainActivity : Activity() {
 
     // Premium two-tab dashboard: live music and live Neshan map.
     private fun showHome() {
-        showCarPlayDashboard()
+        showCarPlayHome()
     }
+
+    /** Main two-page iOS-inspired cockpit: Apps page + Map/Music widgets page. */
+    private fun showCarPlayHome() {
+        appsScreenVisible = false
+        dashboardTab = 1
+        musicScreenVisible = false
+        detachMapView()
+        stopLocationUpdates()
+        handler.removeCallbacks(clockTick)
+        handler.removeCallbacks(mediaTick)
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(10), dp(9), dp(12), dp(9))
+            background = wallpaperDrawable()
+        }
+
+        val rail = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.argb(205, 34, 46, 68), Color.argb(165, 14, 22, 38))).apply {
+                cornerRadius = dp(24).toFloat()
+                setStroke(dp(1), Color.argb(58, 255, 255, 255))
+            }
+            setPadding(dp(5), dp(9), dp(5), dp(9))
+        }
+
+        fun railButton(glyph: String, caption: String, selected: Boolean = false, click: () -> Unit) {
+            val item = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                background = if (selected) GradientDrawable().apply {
+                    setColor(Color.argb(76, 104, 169, 255))
+                    cornerRadius = dp(15).toFloat()
+                    setStroke(dp(1), Color.argb(105, 151, 202, 255))
+                } else rounded(Color.TRANSPARENT, 15)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { click() }
+            }
+            item.addView(TextView(this).apply {
+                text = glyph
+                textSize = 23f
+                gravity = Gravity.CENTER
+                setTextColor(if (selected) Color.rgb(178, 216, 255) else Color.rgb(224, 232, 245))
+            }, LinearLayout.LayoutParams(-1, dp(34)))
+            item.addView(TextView(this).apply {
+                text = caption
+                textSize = 8f
+                gravity = Gravity.CENTER
+                setTextColor(if (selected) Color.WHITE else Color.rgb(170, 184, 205))
+            }, LinearLayout.LayoutParams(-1, dp(15)))
+            rail.addView(item, LinearLayout.LayoutParams(dp(54), dp(56)).apply { bottomMargin = dp(6) })
+        }
+
+        railButton("⌂", "HOME", true) { pagerToWidgetPage() }
+        railButton("▦", "APPS") { pagerToAppsPage() }
+        railButton("⌖", "MAP") { openNeshan() }
+        railButton("♫", "MUSIC") { showMusic() }
+        railButton("☎", "PHONE") { showPhoneHub() }
+        rail.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
+        railButton("◉", "BOOST") { audioBoosterDialog.show() }
+        railButton("⚙", "SETTINGS") { openSettings() }
+        root.addView(rail, LinearLayout.LayoutParams(dp(66), -1).apply { rightMargin = dp(12) })
+
+        val main = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(5), 0, dp(6), dp(8))
+        }
+        val brand = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        brand.addView(text("ALPS", 23f, white, true))
+        brand.addView(text("LIQUID GLASS COCKPIT", 9f, Color.rgb(169, 190, 220), true))
+        top.addView(brand, LinearLayout.LayoutParams(0, dp(49), 1f))
+        zlinkStatusView = text("ZLINK WAITING", 9f, Color.rgb(170, 184, 205), true).apply {
+            gravity = Gravity.CENTER
+            background = rounded(Color.argb(80, 255, 255, 255), 13)
+            setPadding(dp(10), 0, dp(10), 0)
+        }
+        top.addView(zlinkStatusView, LinearLayout.LayoutParams(-2, dp(30)).apply { rightMargin = dp(12) })
+        val clockStack = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
+        clockView = text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()), 24f, white, true).apply { gravity = Gravity.CENTER }
+        dateView = text(formatPersianDate(Date()), 12f, Color.rgb(206, 218, 237), true).apply { gravity = Gravity.CENTER }
+        clockStack.addView(clockView, LinearLayout.LayoutParams(-1, dp(31)))
+        clockStack.addView(dateView, LinearLayout.LayoutParams(-1, dp(20)))
+        top.addView(clockStack, LinearLayout.LayoutParams(dp(190), dp(52)))
+        main.addView(top)
+
+        val pager = SwipeViewFlipper(this).apply {
+            setBackgroundColor(Color.TRANSPARENT)
+        }
+        homePager = pager
+
+        // Page 1: app grid.
+        val appsPage = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.argb(150, 34, 48, 72), Color.argb(125, 16, 24, 41))).apply {
+                cornerRadius = dp(25).toFloat()
+                setStroke(dp(1), Color.argb(48, 255, 255, 255))
+            }
+            setPadding(dp(17), dp(14), dp(17), dp(10))
+        }
+        val appsHeading = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        appsHeading.addView(text("YOUR APPS", 15f, white, true), LinearLayout.LayoutParams(0, dp(35), 1f))
+        appsHeading.addView(text("SWIPE TO DASHBOARD  →", 9f, Color.rgb(170, 195, 228), true))
+        appsPage.addView(appsHeading)
+        val appSearch = EditText(this).apply {
+            hint = "Search apps"
+            singleLine = true
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setHintTextColor(0x99FFFFFF.toInt())
+            setPadding(dp(15), 0, dp(15), 0)
+            background = GradientDrawable().apply {
+                setColor(Color.argb(78, 255, 255, 255))
+                cornerRadius = dp(15).toFloat()
+                setStroke(dp(1), Color.argb(42, 255, 255, 255))
+            }
+        }
+        appsPage.addView(appSearch, LinearLayout.LayoutParams(-1, dp(43)).apply { topMargin = dp(7); bottomMargin = dp(7) })
+        val appGrid = RecyclerView(this).apply {
+            layoutManager = GridLayoutManager(this@MainActivity, 5)
+            overScrollMode = View.OVER_SCROLL_NEVER
+            clipToPadding = false
+            setPadding(0, dp(5), 0, dp(4))
+        }
+        val allApps = loadApps()
+        val appAdapter = AppAdapter(allApps.toMutableList()) { app -> launchApp(app) }
+        appGrid.adapter = appAdapter
+        appsPage.addView(appGrid, LinearLayout.LayoutParams(-1, 0, 1f))
+        appSearch.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val query = s?.toString()?.trim()?.lowercase(Locale.getDefault()).orEmpty()
+                appAdapter.submitItems(if (query.isEmpty()) allApps else allApps.filter {
+                    it.label.lowercase(Locale.getDefault()).contains(query) || it.packageName.lowercase(Locale.ROOT).contains(query)
+                })
+            }
+            override fun afterTextChanged(s: android.text.Editable?) {}
+        })
+        pager.addView(appsPage, ViewFlipper.LayoutParams(-1, -1))
+
+        // Page 2: embedded Neshan map + live media widget.
+        val widgetsPage = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        val mapPanel = FrameLayout(this).apply {
+            background = rounded(Color.argb(190, 21, 34, 53), 25)
+            clipToOutline = true
+            elevation = dp(4).toFloat()
+            isClickable = true
+            setOnClickListener { openNeshan() }
+        }
+        dashboardMapFrame = mapPanel
+        mapView.isClickable = true
+        mapPanel.addView(mapView, FrameLayout.LayoutParams(-1, -1))
+        val mapLabel = text("NESHAN", 10f, Color.WHITE, true).apply {
+            background = rounded(Color.argb(210, 18, 30, 49), 12)
+            setPadding(dp(12), 0, dp(12), 0)
+        }
+        mapPanel.addView(mapLabel, FrameLayout.LayoutParams(-2, dp(34), Gravity.TOP or Gravity.START).apply {
+            leftMargin = dp(12); topMargin = dp(12)
+        })
+        val recenter = action("◎") {
+            lastLocation?.let { location ->
+                mapView.getMapAsync { map -> map.cameraPosition = CameraPosition.Builder()
+                    .target(LatLng(location.latitude, location.longitude)).zoom(16.0).build() }
+            } ?: startLocationUpdates()
+        }.apply { textSize = 22f; background = rounded(Color.argb(220, 17, 29, 47), 17) }
+        mapPanel.addView(recenter, FrameLayout.LayoutParams(dp(49), dp(49), Gravity.BOTTOM or Gravity.END).apply {
+            rightMargin = dp(13); bottomMargin = dp(13)
+        })
+        widgetsPage.addView(mapPanel, LinearLayout.LayoutParams(0, -1, 1.2f).apply { rightMargin = dp(12) })
+
+        val mediaPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.argb(210, 48, 66, 96), Color.argb(190, 17, 27, 47))).apply {
+                cornerRadius = dp(25).toFloat()
+                setStroke(dp(1), Color.argb(64, 255, 255, 255))
+            }
+            setPadding(dp(14), dp(13), dp(14), dp(12))
+            elevation = dp(4).toFloat()
+            setOnClickListener { showMusic() }
+        }
+        mediaPanel.addView(text("NOW PLAYING", 10f, Color.rgb(177, 207, 255), true).apply { gravity = Gravity.CENTER },
+            LinearLayout.LayoutParams(-1, dp(22)))
+        dashboardCover = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = rounded(Color.argb(95, 255, 255, 255), 20)
+            clipToOutline = true
+            setImageDrawable(rounded(Color.argb(95, 255, 255, 255), 20))
+            elevation = dp(5).toFloat()
+        }
+        mediaPanel.addView(dashboardCover, LinearLayout.LayoutParams(dp(126), dp(126)).apply {
+            gravity = Gravity.CENTER; topMargin = dp(8); bottomMargin = dp(8)
+        })
+        homeTrackTitle = text("—", 15f, white, true).apply {
+            gravity = Gravity.CENTER; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        mediaPanel.addView(homeTrackTitle, LinearLayout.LayoutParams(-1, dp(26)))
+        homeTrackArtist = text("", 11f, Color.rgb(184, 197, 219)).apply {
+            gravity = Gravity.CENTER; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        mediaPanel.addView(homeTrackArtist, LinearLayout.LayoutParams(-1, dp(22)))
+        val mediaTimes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        dashboardElapsed = text("0:00", 10f, muted)
+        dashboardDuration = text("0:00", 10f, muted).apply { gravity = Gravity.END }
+        mediaTimes.addView(dashboardElapsed, LinearLayout.LayoutParams(0, dp(18), 1f))
+        mediaTimes.addView(dashboardDuration, LinearLayout.LayoutParams(0, dp(18), 1f))
+        mediaPanel.addView(mediaTimes)
+        dashboardSeek = SeekBar(this).apply {
+            max = 1000
+            progressTintList = android.content.res.ColorStateList.valueOf(Color.rgb(145, 192, 255))
+            thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onStartTrackingTouch(seekBar: SeekBar?) { userSeeking = true }
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                    userSeeking = false
+                    if (lastDuration > 0L) activeController?.transportControls?.seekTo((progress / 1000.0 * lastDuration).toLong())
+                }
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser && lastDuration > 0L) dashboardElapsed?.text = formatTime((progress / 1000.0 * lastDuration).toLong())
+                }
+            })
+        }
+        mediaPanel.addView(dashboardSeek, LinearLayout.LayoutParams(-1, dp(28)))
+        val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        controls.addView(action("⏮") { activeController?.transportControls?.skipToPrevious() },
+            LinearLayout.LayoutParams(0, dp(44), 1f).apply { rightMargin = dp(5) })
+        dashboardPlayButton = action("▶") { togglePlayback() }.apply {
+            textSize = 21f
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(102, 177, 255), Color.rgb(54, 111, 205))).apply { cornerRadius = dp(16).toFloat() }
+        }
+        homePlayPauseButton = dashboardPlayButton!!
+        homeCoverView = dashboardCover!!
+        controls.addView(dashboardPlayButton, LinearLayout.LayoutParams(0, dp(47), 1.2f))
+        controls.addView(action("⏭") { activeController?.transportControls?.skipToNext() },
+            LinearLayout.LayoutParams(0, dp(44), 1f).apply { leftMargin = dp(5) })
+        mediaPanel.addView(controls, LinearLayout.LayoutParams(-1, dp(50)).apply { topMargin = dp(3) })
+        widgetsPage.addView(mediaPanel, LinearLayout.LayoutParams(0, -1, 0.78f))
+        pager.addView(widgetsPage, ViewFlipper.LayoutParams(-1, -1))
+        pager.displayedChild = 1
+        main.addView(pager, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        val pageDots = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        val appsDot = action("APPS") { pagerToAppsPage() }.apply { textSize = 9f; background = rounded(Color.argb(65, 255, 255, 255), 12) }
+        val homeDot = action("MAP  •  MUSIC") { pagerToWidgetPage() }.apply { textSize = 9f; background = rounded(Color.argb(95, 99, 157, 236), 12) }
+        pageDots.addView(appsDot, LinearLayout.LayoutParams(dp(76), dp(28)).apply { rightMargin = dp(7) })
+        pageDots.addView(homeDot, LinearLayout.LayoutParams(dp(112), dp(28)))
+        main.addView(pageDots, LinearLayout.LayoutParams(-1, dp(34)).apply { topMargin = dp(5) })
+        root.addView(main, LinearLayout.LayoutParams(0, -1, 1f))
+
+        setAnimatedContent(root)
+        handler.post(clockTick)
+        refreshMedia()
+        handler.removeCallbacks(mediaTick)
+        handler.post(mediaTick)
+        startLocationUpdates()
+    }
+
+    private var homePager: SwipeViewFlipper? = null
+    private fun pagerToAppsPage() { homePager?.let { if (it.displayedChild != 0) it.showPrevious() } }
+    private fun pagerToWidgetPage() { homePager?.let { if (it.displayedChild != 1) it.showNext() } }
 
     // Landscape-first CarPlay-inspired split dashboard: persistent side rail,
     // live navigation map and compact now-playing card on one screen.
