@@ -1735,6 +1735,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        zlinkBridge.start()
         mapView.onResume()
         if (dashboardTab >= 0 && ::clockView.isInitialized) {
             handler.removeCallbacks(clockTick)
@@ -1748,6 +1749,7 @@ class MainActivity : Activity() {
         }
     }
     override fun onPause() {
+        zlinkBridge.stop()
         handler.removeCallbacks(mediaTick)
         handler.removeCallbacks(clockTick)
         stopLocationUpdates()
@@ -1757,6 +1759,7 @@ class MainActivity : Activity() {
     override fun onStop() { mapView.onStop(); super.onStop() }
     override fun onLowMemory() { super.onLowMemory(); mapView.onLowMemory() }
     override fun onDestroy() {
+        zlinkBridge.stop()
         handler.removeCallbacksAndMessages(null)
         stopLocationUpdates()
         mapView.onDestroy()
