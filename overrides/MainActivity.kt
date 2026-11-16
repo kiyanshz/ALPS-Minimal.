@@ -771,7 +771,7 @@ class MainActivity : Activity() {
         appsPage.addView(appsHeading)
         val appSearch = EditText(this).apply {
             hint = "Search apps"
-            singleLine = true
+            setSingleLine(true)
             textSize = 14f
             setTextColor(Color.WHITE)
             setHintTextColor(0x99FFFFFF.toInt())
@@ -803,7 +803,7 @@ class MainActivity : Activity() {
             }
             override fun afterTextChanged(s: android.text.Editable?) {}
         })
-        pager.addView(appsPage, ViewFlipper.LayoutParams(-1, -1))
+        pager.addView(appsPage, FrameLayout.LayoutParams(-1, -1))
 
         // Page 2: embedded Neshan map + live media widget.
         val widgetsPage = LinearLayout(this).apply {
@@ -907,7 +907,7 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(0, dp(44), 1f).apply { leftMargin = dp(5) })
         mediaPanel.addView(controls, LinearLayout.LayoutParams(-1, dp(50)).apply { topMargin = dp(3) })
         widgetsPage.addView(mediaPanel, LinearLayout.LayoutParams(0, -1, 0.78f))
-        pager.addView(widgetsPage, ViewFlipper.LayoutParams(-1, -1))
+        pager.addView(widgetsPage, FrameLayout.LayoutParams(-1, -1))
         pager.displayedChild = 1
         main.addView(pager, LinearLayout.LayoutParams(-1, 0, 1f))
 
