@@ -1401,6 +1401,7 @@ class MainActivity : Activity() {
         refreshMedia()
         handler.removeCallbacks(mediaTick)
         handler.post(mediaTick)
+        requestNotificationAccessIfNeeded()
     }
 
     private fun loadApps(): List<AppItem> {
@@ -1444,6 +1445,16 @@ class MainActivity : Activity() {
     }
 
     override fun onStart() { super.onStart(); mapView.onStart() }
+    private fun requestNotificationAccessIfNeeded() {
+        if (!appsScreenVisible || notificationAccessEnabled() || notificationAccessPrompted) return
+        notificationAccessPrompted = true
+        try {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        } catch (_: Exception) {
+            Toast.makeText(this, "تنظیمات دسترسی اعلان‌ها در دستگاه در دسترس نیست", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         mapView.onResume()
@@ -1452,14 +1463,7 @@ class MainActivity : Activity() {
             handler.post(clockTick)
         }
         if (dashboardTab == 1) startLocationUpdates()
-        if (appsScreenVisible && !notificationAccessEnabled() && !notificationAccessPrompted) {
-            notificationAccessPrompted = true
-            try {
-                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-            } catch (_: Exception) {
-                Toast.makeText(this, "تنظیمات دسترسی اعلان‌ها در دستگاه در دسترس نیست", Toast.LENGTH_SHORT).show()
-            }
-        }
+        requestNotificationAccessIfNeeded()
         if ((dashboardTab >= 0 || musicScreenVisible || appsScreenVisible) && !isFinishing) {
             handler.removeCallbacks(mediaTick)
             handler.post(mediaTick)
