@@ -2,6 +2,7 @@ package com.alps.minimal
 
 import android.content.Context
 import android.view.MotionEvent
+import android.view.animation.Animation
 import android.view.animation.TranslateAnimation
 import android.widget.ViewFlipper
 import kotlin.math.abs
@@ -17,10 +18,10 @@ class SwipeViewFlipper(context: Context) : ViewFlipper(context) {
     private var swipeHandled = false
 
     init {
-        val enterFromRight = TranslateAnimation(1f, 0f, 0f, 0f).apply { duration = 280L }
-        val leaveToLeft = TranslateAnimation(0f, -0.16f, 0f, 0f).apply { duration = 240L }
-        val enterFromLeft = TranslateAnimation(-0.16f, 0f, 0f, 0f).apply { duration = 280L }
-        val leaveToRight = TranslateAnimation(0f, 1f, 0f, 0f).apply { duration = 240L }
+        val enterFromRight = TranslateAnimation(Animation.RELATIVE_TO_PARENT, 1f, Animation.RELATIVE_TO_PARENT, 0f, Animation.RELATIVE_TO_PARENT, 0f, Animation.RELATIVE_TO_PARENT, 0f).apply { duration = 280L }
+        val leaveToLeft = TranslateAnimation(Animation.RELATIVE_TO_PARENT, 0f, Animation.RELATIVE_TO_PARENT, -0.16f, Animation.RELATIVE_TO_PARENT, 0f, Animation.RELATIVE_TO_PARENT, 0f).apply { duration = 240L }
+        val enterFromLeft = TranslateAnimation(Animation.RELATIVE_TO_PARENT, -0.16f, Animation.RELATIVE_TO_PARENT, 0f, Animation.RELATIVE_TO_PARENT, 0f, Animation.RELATIVE_TO_PARENT, 0f).apply { duration = 280L }
+        val leaveToRight = TranslateAnimation(Animation.RELATIVE_TO_PARENT, 0f, Animation.RELATIVE_TO_PARENT, 1f, Animation.RELATIVE_TO_PARENT, 0f, Animation.RELATIVE_TO_PARENT, 0f).apply { duration = 240L }
         inAnimation = enterFromRight
         outAnimation = leaveToLeft
         setAnimateFirstView(false)
