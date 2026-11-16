@@ -54,6 +54,102 @@ import java.util.Date
 import java.util.Locale
 
 
+
+
+private class VolumeBooster {
+    private var enhancer: android.media.audiofx.LoudnessEnhancer? = null
+    var isOn: Boolean = false
+        private set
+
+    fun enable(gainMb: Int) {
+        try {
+            if (enhancer == null) enhancer = android.media.audiofx.LoudnessEnhancer(0)
+            enhancer?.setTargetGain(gainMb.coerceIn(0, 1500))
+            enhancer?.enabled = true
+            isOn = true
+        } catch (_: Exception) {
+            isOn = false
+        }
+    }
+
+    fun setGain(gainMb: Int) {
+        try {
+            enhancer?.setTargetGain(gainMb.coerceIn(0, 1500))
+        } catch (_: Exception) {
+        }
+    }
+
+    fun disable() {
+        try {
+            enhancer?.enabled = false
+        } catch (_: Exception) {
+        }
+        try {
+            enhancer?.release()
+        } catch (_: Exception) {
+        }
+        enhancer = null
+        isOn = false
+    }
+}
+
+private class AudioBoosterDialog(
+    private val context: android.content.Context,
+    private val booster: VolumeBooster
+) {
+    private val prefs = context.getSharedPreferences("audio_booster", android.content.Context.MODE_PRIVATE)
+    private val levels = intArrayOf(0, 400, 800, 1200)
+    private val names = arrayOf("Off", "Low", "Medium", "High")
+
+    fun restore() {
+        apply(prefs.getInt("level", 0).coerceIn(0, levels.lastIndex))
+    }
+
+    fun show() {
+        val view = android.view.LayoutInflater.from(context)
+            .inflate(R.layout.dialog_audio_booster, null)
+        val seek = view.findViewById<android.widget.SeekBar>(R.id.boostSeek)
+        val label = view.findViewById<android.widget.TextView>(R.id.boostLevel)
+        val saved = prefs.getInt("level", 0).coerceIn(0, levels.lastIndex)
+
+        seek.max = levels.lastIndex
+        seek.progress = saved
+        label.text = names[saved]
+        seek.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(s: android.widget.SeekBar?, p: Int, fromUser: Boolean) {
+                val level = p.coerceIn(0, levels.lastIndex)
+                label.text = names[level]
+                if (fromUser) apply(level)
+            }
+            override fun onStartTrackingTouch(s: android.widget.SeekBar?) {}
+            override fun onStopTrackingTouch(s: android.widget.SeekBar?) {}
+        })
+
+        val dialog = android.app.Dialog(context)
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        dialog.setContentView(view)
+        dialog.window?.setBackgroundDrawable(
+            android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT)
+        )
+        dialog.show()
+        val width = minOf(
+            (context.resources.displayMetrics.density * 440).toInt(),
+            context.resources.displayMetrics.widthPixels -
+                (context.resources.displayMetrics.density * 32).toInt()
+        )
+        dialog.window?.setLayout(width, android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+    }
+
+    private fun apply(level: Int) {
+        when {
+            level == 0 -> booster.disable()
+            booster.isOn -> booster.setGain(levels[level])
+            else -> booster.enable(levels[level])
+        }
+        prefs.edit().putInt("level", level).apply()
+    }
+}
+
 private class LiquidGlassWallpaperDrawable : android.graphics.drawable.Drawable() {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     override fun draw(canvas: Canvas) {
@@ -135,6 +231,14 @@ class MainActivity : Activity() {
     private var resolvedArtworkUri: String? = null
     private var resolvedArtworkBitmap: Bitmap? = null
     private var failedArtworkUri: String? = null
+    private var appsScreenVisible = false
+    private var notificationAccessPrompted = false
+    private var appsNowPlayingCard: View? = null
+    private var appsNowPlayingCover: ImageView? = null
+    private var appsNowPlayingTitle: TextView? = null
+    private var appsNowPlayingArtist: TextView? = null
+    private val volumeBooster = VolumeBooster()
+    private lateinit var audioBoosterDialog: AudioBoosterDialog
 
     private lateinit var mapView: MapView
     private lateinit var clockView: TextView
@@ -217,6 +321,8 @@ class MainActivity : Activity() {
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE)
         MapLibre.getInstance(this)
+        audioBoosterDialog = AudioBoosterDialog(this, volumeBooster)
+        audioBoosterDialog.restore()
         mapView = MapView(this)
         mapView.onCreate(savedInstanceState)
         mapView.getMapAsync { map ->
@@ -325,6 +431,7 @@ class MainActivity : Activity() {
     }
 
     private fun showPhoneHub() {
+        appsScreenVisible = false
         dashboardTab = -1
         musicScreenVisible = false
         stopLocationUpdates()
@@ -390,6 +497,7 @@ class MainActivity : Activity() {
     }
 
     private fun showCalendarScreen() {
+        appsScreenVisible = false
         dashboardTab = -1
         musicScreenVisible = false
         stopLocationUpdates()
@@ -432,6 +540,7 @@ class MainActivity : Activity() {
     private fun launchApp(app: AppItem) {
         val key = (app.label + " " + app.packageName).lowercase(Locale.ROOT)
         when {
+            app.packageName == "alps.internal.booster" || key.contains("audio booster") || key.contains("تقویت صدا") -> audioBoosterDialog.show()
             listOf("video", "gallery", "photos", "گالری", "ویدیو", "فیلم").any { key.contains(it) } -> openVideoGallery()
             listOf("phone", "dialer", "تلفن", "تماس").any { key.contains(it) } -> showPhoneHub()
             listOf("message", "messaging", "sms", "پیام").any { key.contains(it) } -> openMessaging()
@@ -547,6 +656,7 @@ class MainActivity : Activity() {
     // Landscape-first CarPlay-inspired split dashboard: persistent side rail,
     // live navigation map and compact now-playing card on one screen.
     private fun showCarPlayDashboard() {
+        appsScreenVisible = false
         dashboardTab = 1
         musicScreenVisible = false
         detachMapView()
@@ -780,6 +890,7 @@ class MainActivity : Activity() {
     }
 
     private fun showDashboard(tab: Int) {
+        appsScreenVisible = false
         dashboardTab = tab.coerceIn(0, 1)
         musicScreenVisible = false
         handler.removeCallbacks(clockTick)
@@ -972,6 +1083,7 @@ class MainActivity : Activity() {
     }
 
     private fun showMusic() {
+        appsScreenVisible = false
         dashboardTab = -1
         musicScreenVisible = true
         stopLocationUpdates()
@@ -1051,8 +1163,20 @@ class MainActivity : Activity() {
         return enabled.contains(packageName)
     }
 
+    private fun updateAppsNowPlaying(title: String?, artist: String?, art: Bitmap?) {
+        val hasTrack = !title.isNullOrBlank() && title != "—"
+        appsNowPlayingCard?.visibility = if (appsScreenVisible && hasTrack) View.VISIBLE else View.GONE
+        if (hasTrack) {
+            appsNowPlayingTitle?.text = title
+            appsNowPlayingArtist?.text = artist.orEmpty()
+            if (art != null) appsNowPlayingCover?.setImageBitmap(art)
+            else appsNowPlayingCover?.setImageResource(android.R.drawable.ic_media_play)
+        }
+    }
+
     private fun refreshMedia() {
         if (!notificationAccessEnabled()) {
+            updateAppsNowPlaying(null, null, null)
             activeController = null
             dashboardSeek?.isEnabled = false
             if (::seekBar.isInitialized) seekBar.isEnabled = false
@@ -1090,6 +1214,7 @@ class MainActivity : Activity() {
                 ?: ""
             val art: Bitmap? = loadArtwork(metadata, selected?.packageName)
             val playing = selected?.playbackState?.state == PlaybackState.STATE_PLAYING
+            updateAppsNowPlaying(title, artist, art)
 
             lastDuration = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
             if (::homeTrackTitle.isInitialized) {
@@ -1122,6 +1247,7 @@ class MainActivity : Activity() {
                 lastDuration = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
             }
         } catch (_: SecurityException) {
+            updateAppsNowPlaying(null, null, null)
             activeController = null
             if (::trackTitle.isInitialized) {
                 trackTitle.text = "—"
@@ -1233,6 +1359,7 @@ class MainActivity : Activity() {
     }
 
     private fun showApps() {
+        appsScreenVisible = true
         dashboardTab = -1
         musicScreenVisible = false
         stopLocationUpdates()
@@ -1240,6 +1367,10 @@ class MainActivity : Activity() {
         handler.removeCallbacks(mediaTick)
         detachMapView()
         setAnimatedContent(layoutInflater.inflate(R.layout.activity_apps, null, false))
+        appsNowPlayingCard = findViewById(R.id.nowPlayingCard)
+        appsNowPlayingCover = findViewById(R.id.npCover)
+        appsNowPlayingTitle = findViewById(R.id.npTitle)
+        appsNowPlayingArtist = findViewById(R.id.npArtist)
         findViewById<View>(R.id.appsRoot).background = wallpaperDrawable()
         val grid = findViewById<RecyclerView>(R.id.appGrid)
         grid.layoutManager = GridLayoutManager(this, 5)
@@ -1267,6 +1398,9 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.dockPhone).setOnClickListener { showPhoneHub() }
         findViewById<View>(R.id.dockSettings).setOnClickListener { openSettings() }
         findViewById<View>(R.id.dockHome).setOnClickListener { showHome() }
+        refreshMedia()
+        handler.removeCallbacks(mediaTick)
+        handler.post(mediaTick)
     }
 
     private fun loadApps(): List<AppItem> {
@@ -1299,6 +1433,8 @@ class MainActivity : Activity() {
             android.R.drawable.ic_menu_manage, "alps.internal.files")
         addShortcut("تقویم", listOf("calendar", "تقویم"),
             android.R.drawable.ic_menu_my_calendar, "alps.internal.calendar")
+        addShortcut("Audio Booster", listOf("audio booster", "تقویت صدا"),
+            android.R.drawable.ic_lock_silent_mode_off, "alps.internal.booster")
 
         return apps.sortedBy { it.label.lowercase(Locale.getDefault()) }
     }
@@ -1316,7 +1452,15 @@ class MainActivity : Activity() {
             handler.post(clockTick)
         }
         if (dashboardTab == 1) startLocationUpdates()
-        if ((dashboardTab >= 0 || musicScreenVisible) && !isFinishing) {
+        if (appsScreenVisible && !notificationAccessEnabled() && !notificationAccessPrompted) {
+            notificationAccessPrompted = true
+            try {
+                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            } catch (_: Exception) {
+                Toast.makeText(this, "تنظیمات دسترسی اعلان‌ها در دستگاه در دسترس نیست", Toast.LENGTH_SHORT).show()
+            }
+        }
+        if ((dashboardTab >= 0 || musicScreenVisible || appsScreenVisible) && !isFinishing) {
             handler.removeCallbacks(mediaTick)
             handler.post(mediaTick)
         }
@@ -1334,6 +1478,7 @@ class MainActivity : Activity() {
         handler.removeCallbacksAndMessages(null)
         stopLocationUpdates()
         mapView.onDestroy()
+        volumeBooster.disable()
         super.onDestroy()
     }
     override fun onSaveInstanceState(outState: Bundle) {
