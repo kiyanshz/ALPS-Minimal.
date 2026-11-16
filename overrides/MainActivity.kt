@@ -827,6 +827,13 @@ class MainActivity : Activity() {
         mapPanel.addView(mapLabel, FrameLayout.LayoutParams(-2, dp(34), Gravity.TOP or Gravity.START).apply {
             leftMargin = dp(12); topMargin = dp(12)
         })
+        val openMapButton = action("OPEN NESHAN  ↗") { openNeshan() }.apply {
+            textSize = 9f
+            background = rounded(Color.argb(220, 17, 29, 47), 12)
+        }
+        mapPanel.addView(openMapButton, FrameLayout.LayoutParams(-2, dp(34), Gravity.TOP or Gravity.END).apply {
+            rightMargin = dp(12); topMargin = dp(12)
+        })
         val recenter = action("◎") {
             lastLocation?.let { location ->
                 mapView.getMapAsync { map -> map.cameraPosition = CameraPosition.Builder()
