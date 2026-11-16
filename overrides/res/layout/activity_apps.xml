@@ -149,6 +149,8 @@
             android:textColorHint="#AFFFFFFF"
             android:textSize="14sp" />
 
+        <include layout="@layout/now_playing_card" />
+
         <TextView
             android:id="@+id/appEmpty"
             android:layout_width="match_parent"
