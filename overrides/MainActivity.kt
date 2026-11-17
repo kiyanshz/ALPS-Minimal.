@@ -872,7 +872,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
-        fun mediaControl(symbol: String, label: String, click: () -> Unit, size: Int = 64): TextView =
+        fun mediaControl(symbol: String, label: String, size: Int = 64, click: () -> Unit): TextView =
             glyph(symbol, if (symbol == "Ⅱ" || symbol == "▶") 37f * sx else 31f * sx).apply {
                 contentDescription = label
                 setBackgroundColor(Color.TRANSPARENT)
