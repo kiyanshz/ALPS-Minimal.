@@ -23,4 +23,4 @@ Legend: **Implemented** = source added; **Hardware test required** = compilation
 | Persistent settings | Implemented | Favorites use DataStore; existing audio booster and recent-app history use SharedPreferences. |
 | Steering-wheel keys, reverse camera and vehicle data | Blocked | Requires a documented head-unit API, broadcast or vendor permission. |
 
-**Build/device status:** The source changes are committed on the integration branch. A successful build and final YT7260D hardware test are still required before calling the work complete.
+**Build/device status:** GitHub Actions run #168 completed successfully, including APK packaging, package-name verification and signature verification. The final YT7260D hardware test is still required before calling runtime behavior complete.
