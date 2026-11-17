@@ -1103,9 +1103,9 @@ class MainActivity : Activity() {
                 setOnClickListener { click() }
             }
             quickGrid.addView(button, android.widget.GridLayout.LayoutParams().apply {
-                width = pxX(150)
+                width = pxX(135)
                 height = pxY(56)
-                setMargins(pxX(5), pxY(5), pxX(5), pxY(5))
+                setMargins(pxX(3), pxY(5), pxX(3), pxY(5))
             })
         }
         quickButton("وای‌فای", true) { launchSafely(Intent(Settings.ACTION_WIFI_SETTINGS)) }
