@@ -43,4 +43,4 @@ of their respective owners.
 - Project: https://github.com/rastikerdar/vazirmatn
 - Version: v33.003
 - File: `Vazirmatn-Regular.ttf`
-- License: SIL Open Font License 1.1 (OFL-1.1). See the upstream project for the complete license text.
+- License: SIL Open Font License 1.1 (OFL-1.1). The build packages the upstream `OFL.txt` alongside the font.
