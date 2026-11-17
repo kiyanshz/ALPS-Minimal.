@@ -703,6 +703,8 @@ class MainActivity : Activity() {
 
     // Landscape-first CarPlay-inspired split dashboard: persistent side rail,
     // live navigation map and compact now-playing card on one screen.
+    // Native Android implementation of the supplied 1280x720 CarPlay reference.
+    // Layout dimensions scale independently with the real landscape display.
     private fun showCarPlayDashboard() {
         appsScreenVisible = false
         dashboardTab = 1
@@ -712,180 +714,124 @@ class MainActivity : Activity() {
         handler.removeCallbacks(clockTick)
         handler.removeCallbacks(mediaTick)
 
+        val metrics = resources.displayMetrics
+        val sx = metrics.widthPixels / 1280f
+        val sy = metrics.heightPixels / 720f
+        fun pxX(value: Int) = (value * sx).toInt().coerceAtLeast(1)
+        fun pxY(value: Int) = (value * sy).toInt().coerceAtLeast(1)
+        fun panelBackground(radius: Int = 28) = GradientDrawable().apply {
+            setColor(Color.rgb(28, 28, 30))
+            cornerRadius = pxX(radius).toFloat()
+        }
+        fun glyph(symbol: String, size: Float, color: Int = Color.WHITE): TextView =
+            text(symbol, size, color, true).apply { gravity = Gravity.CENTER }
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(10), dp(9), dp(14), dp(9))
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(8, 13, 22), Color.rgb(14, 21, 34), Color.rgb(7, 11, 19))
-            )
+            setBackgroundColor(Color.BLACK)
         }
 
+        // Left navigation rail (104 px in the design reference).
         val rail = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            background = GradientDrawable().apply {
-                setColor(Color.argb(220, 23, 31, 45))
-                cornerRadius = dp(25).toFloat()
-                setStroke(dp(1), Color.argb(34, 255, 255, 255))
-            }
-            setPadding(dp(5), dp(8), dp(5), dp(8))
+            setBackgroundColor(Color.rgb(17, 17, 20))
+            setPadding(0, pxY(24), 0, pxY(18))
         }
-        val logo = TextView(this).apply {
-            text = "A"
-            textSize = 23f
-            setTypeface(Typeface.DEFAULT, Typeface.BOLD)
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(74, 166, 255), Color.rgb(35, 92, 184))).apply {
-                cornerRadius = dp(16).toFloat()
-            }
-        }
-        rail.addView(logo, LinearLayout.LayoutParams(dp(48), dp(48)).apply { bottomMargin = dp(14) })
-
-        fun railItem(symbol: String, caption: String, selected: Boolean = false, click: () -> Unit) {
-            val item = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
+        fun railButton(symbol: String, color: Int, label: String, click: () -> Unit) {
+            val item = TextView(this).apply {
+                text = symbol
+                textSize = 29f * sx
+                setTextColor(Color.WHITE)
                 gravity = Gravity.CENTER
-                background = if (selected) GradientDrawable().apply {
-                    setColor(Color.argb(72, 69, 153, 255))
-                    cornerRadius = dp(15).toFloat()
-                    setStroke(dp(1), Color.argb(105, 100, 177, 255))
-                } else rounded(Color.TRANSPARENT, 15)
+                background = GradientDrawable().apply {
+                    setColor(color)
+                    cornerRadius = pxX(20).toFloat()
+                }
+                contentDescription = label
                 isClickable = true
                 isFocusable = true
                 setOnClickListener { click() }
             }
-            item.addView(TextView(this).apply {
-                text = symbol
-                textSize = 23f
-                gravity = Gravity.CENTER
-                setTextColor(if (selected) Color.rgb(133, 196, 255) else Color.rgb(205, 215, 231))
-            }, LinearLayout.LayoutParams(-1, dp(34)))
-            item.addView(TextView(this).apply {
-                text = caption
-                textSize = 8f
-                gravity = Gravity.CENTER
-                setTextColor(if (selected) Color.rgb(155, 205, 255) else Color.rgb(145, 157, 176))
-            }, LinearLayout.LayoutParams(-1, dp(16)))
-            rail.addView(item, LinearLayout.LayoutParams(dp(54), dp(58)).apply { bottomMargin = dp(7) })
+            rail.addView(item, LinearLayout.LayoutParams(pxX(68), pxY(68)).apply {
+                bottomMargin = pxY(16)
+            })
         }
-        railItem("⌂", "HOME", true) { showHome() }
-        railItem("▦", "APPS") { showApps() }
-        railItem("⌖", "MAP") { showMap() }
-        railItem("♫", "MUSIC") { showMusic() }
-        railItem("☎", "PHONE") { showPhoneHub() }
+        railButton("⌖", Color.rgb(48, 209, 88), "نقشه نشان") { showMap() }
+        railButton("♫", Color.rgb(255, 55, 95), "موسیقی") { showMusic() }
+        railButton("☎", Color.rgb(10, 132, 255), "تماس") { showPhoneHub() }
+        railButton("▦", Color.rgb(44, 44, 46), "همه برنامه‌ها") { showApps() }
+
         val railSpacer = View(this)
         rail.addView(railSpacer, LinearLayout.LayoutParams(1, 0, 1f))
-        railItem("⚙", "SETTINGS") { openSettings() }
-        root.addView(rail, LinearLayout.LayoutParams(dp(66), -1).apply { rightMargin = dp(12) })
+        clockView = text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()),
+            30f * sx, Color.WHITE, true).apply { gravity = Gravity.CENTER }
+        dateView = text(formatPersianDate(Date()), 14f * sx, Color.rgb(161, 161, 170))
+            .apply { gravity = Gravity.CENTER; maxLines = 1 }
+        rail.addView(clockView, LinearLayout.LayoutParams(-1, pxY(40)))
+        rail.addView(dateView, LinearLayout.LayoutParams(-1, pxY(24)))
+        root.addView(rail, LinearLayout.LayoutParams(pxX(104), -1))
 
+        // Main canvas: music card on the left, map and utility cards on the right.
         val main = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        val top = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(5), 0, dp(5), dp(9))
+            setPadding(pxX(24), pxY(24), pxX(24), pxY(24))
         }
-        val heading = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        heading.addView(text("Good evening", 11f, Color.rgb(147, 164, 188)))
-        heading.addView(text("Your drive", 20f, white, true))
-        top.addView(heading, LinearLayout.LayoutParams(0, dp(45), 1f))
-        val clockStack = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
-        clockView = text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()), 23f, white, true).apply { gravity = Gravity.CENTER }
-        dateView = text(formatPersianDate(Date()), 10f, Color.rgb(190, 204, 224), true).apply { gravity = Gravity.CENTER }
-        clockStack.addView(clockView, LinearLayout.LayoutParams(-1, dp(29)))
-        clockStack.addView(dateView, LinearLayout.LayoutParams(-1, dp(18)))
-        top.addView(clockStack, LinearLayout.LayoutParams(dp(160), dp(48)))
-        main.addView(top)
-
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-
-        val mapPanel = FrameLayout(this).apply {
-            background = rounded(Color.rgb(19, 29, 43), 26)
-            clipToOutline = true
-            elevation = dp(4).toFloat()
-        }
-        dashboardMapFrame = mapPanel
-        mapView.isClickable = true
-        mapPanel.addView(mapView, FrameLayout.LayoutParams(-1, -1))
-        val mapHeader = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = GradientDrawable().apply {
-                setColor(Color.argb(218, 13, 22, 36))
-                cornerRadius = dp(15).toFloat()
-                setStroke(dp(1), Color.argb(45, 255, 255, 255))
-            }
-            setPadding(dp(13), dp(8), dp(13), dp(8))
-        }
-        mapHeader.addView(text("NESHAN  •  MAP", 10f, Color.rgb(139, 194, 255), true))
-        mapPanel.addView(mapHeader, FrameLayout.LayoutParams(-2, dp(42), Gravity.TOP or Gravity.START).apply {
-            leftMargin = dp(12); topMargin = dp(12)
-        })
-        val recenter = action("◎") {
-            lastLocation?.let { loc ->
-                mapView.getMapAsync { map ->
-                    map.cameraPosition = CameraPosition.Builder()
-                        .target(LatLng(loc.latitude, loc.longitude)).zoom(16.0).build()
-                }
-            } ?: startLocationUpdates()
-        }.apply { textSize = 21f; background = rounded(Color.argb(225, 16, 28, 46), 18) }
-        mapPanel.addView(recenter, FrameLayout.LayoutParams(dp(52), dp(52), Gravity.BOTTOM or Gravity.END).apply {
-            rightMargin = dp(14); bottomMargin = dp(14)
-        })
-        content.addView(mapPanel, LinearLayout.LayoutParams(0, -1, 1.28f).apply { rightMargin = dp(12) })
 
         val mediaPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(31, 43, 62), Color.rgb(18, 26, 41))).apply {
-                cornerRadius = dp(26).toFloat()
-                setStroke(dp(1), Color.argb(48, 255, 255, 255))
-            }
-            setPadding(dp(15), dp(13), dp(15), dp(12))
-            elevation = dp(4).toFloat()
+            background = panelBackground()
+            setPadding(pxX(28), pxY(24), pxX(28), pxY(22))
+            clipToOutline = true
         }
+        val nowPlaying = text("در حال پخش", 14f * sx, Color.rgb(161, 161, 170))
+            .apply { gravity = Gravity.START }
+        mediaPanel.addView(nowPlaying, LinearLayout.LayoutParams(-1, pxY(30)))
 
         dashboardCover = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
-            background = rounded(Color.rgb(45, 61, 84), 20)
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(255, 55, 95), Color.rgb(94, 92, 230))
+            ).apply { cornerRadius = pxX(28).toFloat() }
             clipToOutline = true
-            setImageDrawable(rounded(Color.rgb(45, 61, 84), 20))
-            elevation = dp(5).toFloat()
+            setImageDrawable(GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(255, 55, 95), Color.rgb(94, 92, 230))
+            ).apply { cornerRadius = pxX(28).toFloat() })
         }
-        mediaPanel.addView(dashboardCover, LinearLayout.LayoutParams(dp(116), dp(116)).apply {
+        mediaPanel.addView(dashboardCover, LinearLayout.LayoutParams(pxX(240), pxY(240)).apply {
             gravity = Gravity.CENTER
-            topMargin = dp(7); bottomMargin = dp(8)
+            topMargin = pxY(10)
+            bottomMargin = pxY(12)
         })
-        homeTrackTitle = text("—", 15f, white, true).apply {
-            gravity = Gravity.CENTER
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        }
-        mediaPanel.addView(homeTrackTitle, LinearLayout.LayoutParams(-1, dp(27)))
-        homeTrackArtist = text("", 11f, Color.rgb(169, 180, 198)).apply {
-            gravity = Gravity.CENTER
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        }
-        mediaPanel.addView(homeTrackArtist, LinearLayout.LayoutParams(-1, dp(22)))
 
-        val times = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        dashboardElapsed = text("0:00", 10f, Color.rgb(165, 179, 200))
-        dashboardDuration = text("0:00", 10f, Color.rgb(165, 179, 200)).apply { gravity = Gravity.END }
-        times.addView(dashboardElapsed, LinearLayout.LayoutParams(0, dp(19), 1f))
-        times.addView(dashboardDuration, LinearLayout.LayoutParams(0, dp(19), 1f))
-        mediaPanel.addView(times)
+        homeTrackTitle = text("—", 30f * sx, Color.WHITE, true).apply {
+            gravity = Gravity.CENTER
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        mediaPanel.addView(homeTrackTitle, LinearLayout.LayoutParams(-1, pxY(42)))
+        homeTrackArtist = text(" ", 19f * sx, Color.rgb(161, 161, 170)).apply {
+            gravity = Gravity.CENTER
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        mediaPanel.addView(homeTrackArtist, LinearLayout.LayoutParams(-1, pxY(30)))
+
+        val mediaTimes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        dashboardElapsed = text("۰:۰۰", 13f * sx, Color.rgb(161, 161, 170))
+        dashboardDuration = text("۰:۰۰", 13f * sx, Color.rgb(161, 161, 170)).apply { gravity = Gravity.END }
+        mediaTimes.addView(dashboardElapsed, LinearLayout.LayoutParams(0, pxY(22), 1f))
+        mediaTimes.addView(dashboardDuration, LinearLayout.LayoutParams(0, pxY(22), 1f))
+        mediaPanel.addView(mediaTimes, LinearLayout.LayoutParams(-1, pxY(22)).apply { topMargin = pxY(4) })
+
         dashboardSeek = SeekBar(this).apply {
             max = 1000
-            progressTintList = android.content.res.ColorStateList.valueOf(Color.rgb(101, 176, 255))
+            progressTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
             thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(58, 58, 60))
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onStartTrackingTouch(seekBar: SeekBar?) { userSeeking = true }
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
@@ -893,41 +839,269 @@ class MainActivity : Activity() {
                     seekToPosition(seekBar?.progress ?: 0)
                 }
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    if (fromUser && lastDuration > 0) dashboardElapsed?.text = formatTime((progress / 1000.0 * lastDuration).toLong())
+                    if (fromUser && lastDuration > 0L) {
+                        dashboardElapsed?.text = persianDigits(formatTime((progress / 1000.0 * lastDuration).toLong()))
+                    }
                 }
             })
         }
-        mediaPanel.addView(dashboardSeek, LinearLayout.LayoutParams(-1, dp(28)))
+        mediaPanel.addView(dashboardSeek, LinearLayout.LayoutParams(-1, pxY(32)))
 
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
-        controls.addView(action("⏮") { activeController?.transportControls?.skipToPrevious() },
-            LinearLayout.LayoutParams(0, dp(45), 1f).apply { rightMargin = dp(5) })
-        dashboardPlayButton = action("▶") { togglePlayback() }.apply {
-            textSize = 22f
-            background = GradientDrawable().apply {
-                setColor(Color.rgb(77, 151, 235))
-                cornerRadius = dp(16).toFloat()
-            }
+        fun mediaControl(symbol: String, label: String, click: () -> Unit, size: Int = 64): TextView =
+            glyph(symbol, if (symbol == "Ⅱ" || symbol == "▶") 37f * sx else 31f * sx).apply {
+                contentDescription = label
+                setBackgroundColor(Color.TRANSPARENT)
+                isClickable = true
+                setOnClickListener { click() }
+            }.also { controls.addView(it, LinearLayout.LayoutParams(pxX(size), pxY(size))) }
+
+        mediaControl("⏮", "قبلی") {
+            activeController?.transportControls?.skipToPrevious()
+            handler.postDelayed({ refreshMedia() }, 300)
+        }
+        dashboardPlayButton = glyph("▶", 40f * sx).apply {
+            contentDescription = "پخش یا توقف"
+            isClickable = true
+            setOnClickListener { togglePlayback() }
         }
         homePlayPauseButton = dashboardPlayButton!!
         homeCoverView = dashboardCover!!
-        controls.addView(dashboardPlayButton, LinearLayout.LayoutParams(0, dp(48), 1.25f))
-        controls.addView(action("⏭") { activeController?.transportControls?.skipToNext() },
-            LinearLayout.LayoutParams(0, dp(45), 1f).apply { leftMargin = dp(5) })
-        mediaPanel.addView(controls, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(4) })
+        controls.addView(dashboardPlayButton, LinearLayout.LayoutParams(pxX(72), pxY(64)))
+        mediaControl("⏭", "بعدی") {
+            activeController?.transportControls?.skipToNext()
+            handler.postDelayed({ refreshMedia() }, 300)
+        }
+        mediaPanel.addView(controls, LinearLayout.LayoutParams(-1, pxY(66)).apply {
+            topMargin = pxY(6)
+        })
 
-        val openPlayer = action("OPEN MUSIC PLAYER  ↗") { showMusic() }
-        openPlayer.background = rounded(Color.argb(55, 103, 168, 255), 14)
-        mediaPanel.addView(openPlayer, LinearLayout.LayoutParams(-1, dp(39)).apply { topMargin = dp(7) })
-        content.addView(mediaPanel, LinearLayout.LayoutParams(0, -1, 0.82f))
+        main.addView(mediaPanel, LinearLayout.LayoutParams(pxX(428), -1))
 
-        main.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
-        main.addView(text("ALPS COCKPIT     •     MAP & MEDIA", 9f, Color.rgb(105, 122, 147), true).apply {
+        val rightColumn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        // Live embedded Neshan/MapLibre map with a clear action to open the Neshan app.
+        val mapPanel = FrameLayout(this).apply {
+            background = panelBackground()
+            clipToOutline = true
+        }
+        dashboardMapFrame = mapPanel
+        mapView.isClickable = true
+        mapPanel.addView(mapView, FrameLayout.LayoutParams(-1, -1))
+
+        val destinationCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(Color.argb(230, 28, 28, 30))
+                cornerRadius = pxX(20).toFloat()
+            }
+            setPadding(pxX(18), pxY(10), pxX(18), pxY(10))
+        }
+        destinationCard.addView(text("مقصد", 14f * sx, Color.rgb(161, 161, 170)))
+        destinationCard.addView(text("برای مسیریابی لمس کن", 21f * sx, Color.WHITE, true))
+        mapPanel.addView(destinationCard, FrameLayout.LayoutParams(-2, pxY(76), Gravity.TOP or Gravity.END).apply {
+            rightMargin = pxX(20)
+            topMargin = pxY(20)
+        })
+
+        val openNeshanButton = TextView(this).apply {
+            text = "نقشه نشان  ↗"
+            textSize = 15f * sx
+            setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
-        }, LinearLayout.LayoutParams(-1, dp(19)).apply { topMargin = dp(5) })
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(10, 132, 255))
+                cornerRadius = pxX(18).toFloat()
+            }
+            isClickable = true
+            setOnClickListener { openNeshan() }
+        }
+        mapPanel.addView(openNeshanButton, FrameLayout.LayoutParams(pxX(150), pxY(52), Gravity.BOTTOM or Gravity.END).apply {
+            rightMargin = pxX(18)
+            bottomMargin = pxY(18)
+        })
+        val mapCaption = text("نقشه نشان  •  موقعیت زنده", 12f * sx, Color.WHITE, true).apply {
+            background = GradientDrawable().apply {
+                setColor(Color.argb(205, 28, 28, 30))
+                cornerRadius = pxX(12).toFloat()
+            }
+            setPadding(pxX(12), 0, pxX(12), 0)
+        }
+        mapPanel.addView(mapCaption, FrameLayout.LayoutParams(-2, pxY(34), Gravity.BOTTOM or Gravity.START).apply {
+            leftMargin = pxX(18)
+            bottomMargin = pxY(20)
+        })
+        rightColumn.addView(mapPanel, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        val lowerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+
+        // Four app shortcuts, matching the supplied reference's icon grid.
+        val appPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = panelBackground()
+            setPadding(pxX(18), pxY(16), pxX(18), pxY(14))
+        }
+        val appGrid = android.widget.GridLayout(this).apply {
+            columnCount = 2
+            rowCount = 2
+            alignmentMode = android.widget.GridLayout.ALIGN_BOUNDS
+            useDefaultMargins = false
+        }
+        fun appShortcut(symbol: String, label: String, color: Int, click: () -> Unit) {
+            val tile = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { click() }
+            }
+            val icon = TextView(this).apply {
+                text = symbol
+                textSize = 36f * sx
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    setColor(color)
+                    cornerRadius = pxX(24).toFloat()
+                }
+            }
+            tile.addView(icon, LinearLayout.LayoutParams(pxX(84), pxY(84)))
+            tile.addView(text(label, 15f * sx, Color.WHITE).apply { gravity = Gravity.CENTER },
+                LinearLayout.LayoutParams(-1, pxY(30)).apply { topMargin = pxY(5) })
+            appGrid.addView(tile, android.widget.GridLayout.LayoutParams().apply {
+                width = pxX(112)
+                height = pxY(145)
+                setMargins(pxX(4), pxY(2), pxX(4), pxY(2))
+            })
+        }
+        appShortcut("☀", "آب‌وهوا", Color.rgb(255, 159, 10)) { showWeather() }
+        appShortcut("▶", "ویدیو", Color.rgb(94, 92, 230)) { openVideoGallery() }
+        appShortcut("◉", "خودرو", Color.rgb(100, 210, 255)) { showApps() }
+        appShortcut("⚙", "تنظیمات", Color.rgb(142, 142, 147)) { openSettings() }
+        appPanel.addView(appGrid)
+
+        val pageDots = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        repeat(3) { index ->
+            val dot = View(this).apply {
+                background = GradientDrawable().apply {
+                    setColor(if (index == 0) Color.WHITE else Color.rgb(99, 99, 102))
+                    cornerRadius = pxX(4).toFloat()
+                }
+            }
+            pageDots.addView(dot, LinearLayout.LayoutParams(pxX(8), pxY(8)).apply {
+                leftMargin = pxX(4); rightMargin = pxX(4)
+            })
+        }
+        appPanel.addView(pageDots, LinearLayout.LayoutParams(-1, pxY(18)).apply { topMargin = pxY(4) })
+        lowerRow.addView(appPanel, LinearLayout.LayoutParams(pxX(300), -1))
+
+        val quickPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = panelBackground()
+            setPadding(pxX(24), pxY(20), pxX(24), pxY(18))
+        }
+
+        val boostHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        boostHeader.addView(text("تقویت صدا", 18f * sx, Color.WHITE, true),
+            LinearLayout.LayoutParams(0, pxY(30), 1f))
+        boostHeader.addView(text("بدون اکو و ریورب", 13f * sx, Color.rgb(161, 161, 170)))
+        quickPanel.addView(boostHeader)
+        val boostSeek = SeekBar(this).apply {
+            max = 100
+            progress = audioBoosterDialog.dashboardGain()
+            progressTintList = android.content.res.ColorStateList.valueOf(Color.rgb(10, 132, 255))
+            thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) audioBoosterDialog.setDashboardGain(progress)
+                }
+            })
+        }
+        quickPanel.addView(boostSeek, LinearLayout.LayoutParams(-1, pxY(44)))
+
+        quickPanel.addView(text("روشنایی صفحه", 18f * sx, Color.WHITE, true),
+            LinearLayout.LayoutParams(-1, pxY(30)).apply { topMargin = pxY(8) })
+        val brightness = SeekBar(this).apply {
+            max = 100
+            progress = try {
+                Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS).coerceIn(0, 255) * 100 / 255
+            } catch (_: Exception) { 75 }
+            progressTintList = android.content.res.ColorStateList.valueOf(Color.rgb(10, 132, 255))
+            thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                    if (Build.VERSION.SDK_INT >= 23 && !Settings.System.canWrite(this@MainActivity)) {
+                        launchSafely(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                            Uri.parse("package:" + packageName)), "دسترسی تغییر روشنایی در دسترس نیست")
+                    } else {
+                        try {
+                            Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE,
+                                Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
+                            Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS,
+                                (progress.coerceIn(1, 100) * 255) / 100)
+                        } catch (_: Exception) {
+                            Toast.makeText(this@MainActivity, "تغییر روشنایی مجاز نیست", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {}
+            })
+        }
+        quickPanel.addView(brightness, LinearLayout.LayoutParams(-1, pxY(44)))
+
+        val quickGrid = android.widget.GridLayout(this).apply { columnCount = 2; rowCount = 2 }
+        fun quickButton(label: String, active: Boolean, click: () -> Unit) {
+            val button = TextView(this).apply {
+                text = label
+                textSize = 15f * sx
+                setTypeface(persianTypeface, Typeface.BOLD)
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    setColor(if (active) Color.rgb(10, 132, 255) else Color.rgb(44, 44, 46))
+                    cornerRadius = pxX(20).toFloat()
+                }
+                isClickable = true
+                setOnClickListener { click() }
+            }
+            quickGrid.addView(button, android.widget.GridLayout.LayoutParams().apply {
+                width = pxX(150)
+                height = pxY(56)
+                setMargins(pxX(5), pxY(5), pxX(5), pxY(5))
+            })
+        }
+        quickButton("وای‌فای", true) { launchSafely(Intent(Settings.ACTION_WIFI_SETTINGS)) }
+        quickButton("بلوتوث", false) { launchSafely(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+        quickButton("هات‌اسپات", true) { launchSafely(Intent(Settings.ACTION_WIRELESS_SETTINGS)) }
+        quickButton("حالت شب", false) { launchSafely(Intent(Settings.ACTION_NIGHT_DISPLAY_SETTINGS)) }
+        quickPanel.addView(quickGrid, LinearLayout.LayoutParams(-1, 0, 1f))
+        lowerRow.addView(quickPanel, LinearLayout.LayoutParams(0, -1, 1f).apply {
+            leftMargin = pxX(24)
+        })
+
+        rightColumn.addView(lowerRow, LinearLayout.LayoutParams(-1, pxY(360)).apply {
+            topMargin = pxY(24)
+        })
+        main.addView(rightColumn, LinearLayout.LayoutParams(0, -1, 1f).apply {
+            leftMargin = pxX(24)
+        })
         root.addView(main, LinearLayout.LayoutParams(0, -1, 1f))
 
         setAnimatedContent(root)
