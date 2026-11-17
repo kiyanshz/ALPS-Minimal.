@@ -52,6 +52,9 @@ import org.maplibre.android.maps.Style
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 
 
@@ -194,21 +197,37 @@ private class LiquidGlassWallpaperDrawable : android.graphics.drawable.Drawable(
     override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 }
 
+data class ActiveNotificationRow(val title: String, val text: String, val packageName: String, val contentIntent: android.app.PendingIntent?)
+
 class MediaAccessService : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
         // Notifications that were already present before the listener connected
         // are important on head units where the media player stays running.
         try { activeNotifications?.forEach { captureArtwork(it) } } catch (_: Exception) {}
+        refreshNotificationSnapshot()
     }
 
     override fun onNotificationPosted(sbn: android.service.notification.StatusBarNotification) {
         captureArtwork(sbn)
+        refreshNotificationSnapshot()
     }
 
     override fun onNotificationRemoved(sbn: android.service.notification.StatusBarNotification) {
-        // Keep the last valid image until the next active media session supplies
-        // its own metadata; clearing it here causes a visible placeholder flash.
+        refreshNotificationSnapshot()
+    }
+
+    private fun refreshNotificationSnapshot() {
+        try {
+            activeItems = activeNotifications.orEmpty().mapNotNull { sbn ->
+                val extras = sbn.notification.extras
+                val title = extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString().orEmpty()
+                val body = extras.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString()
+                    ?: extras.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT)?.toString().orEmpty()
+                if (title.isBlank() && body.isBlank()) null
+                else ActiveNotificationRow(title.ifBlank { sbn.packageName }, body, sbn.packageName, sbn.notification.contentIntent)
+            }
+        } catch (_: Exception) { activeItems = emptyList() }
     }
 
     private fun captureArtwork(sbn: android.service.notification.StatusBarNotification) {
@@ -236,6 +255,7 @@ class MediaAccessService : NotificationListenerService() {
     companion object {
         @Volatile var latestArtwork: Bitmap? = null
         @Volatile var latestArtworkPackage: String? = null
+        @Volatile var activeItems: List<ActiveNotificationRow> = emptyList()
     }
 }
 
@@ -251,6 +271,7 @@ class MainActivity : Activity() {
     private var resolvedArtworkUri: String? = null
     private var resolvedArtworkBitmap: Bitmap? = null
     private var failedArtworkUri: String? = null
+    private lateinit var settingsStore: LauncherSettingsStore
     private var appsScreenVisible = false
     private var notificationAccessPrompted = false
     private var appsNowPlayingCard: View? = null
@@ -341,6 +362,7 @@ class MainActivity : Activity() {
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE)
         MapLibre.getInstance(this)
+        settingsStore = LauncherSettingsStore(this)
         audioBoosterDialog = AudioBoosterDialog(this, volumeBooster)
         audioBoosterDialog.restore()
         mapView = MapView(this)
@@ -375,12 +397,17 @@ class MainActivity : Activity() {
         setPadding(dp(22), dp(16), dp(22), dp(12))
     }
 
+    private val persianTypeface: Typeface by lazy {
+        try { Typeface.createFromAsset(assets, "fonts/Vazirmatn-Regular.ttf") }
+        catch (_: Exception) { Typeface.create("sans-serif", Typeface.NORMAL) }
+    }
+
     private fun text(value: String, size: Float, color: Int = white, bold: Boolean = false): TextView =
         TextView(this).apply {
             text = value
             textSize = size
             setTextColor(color)
-            if (bold) setTypeface(Typeface.DEFAULT, Typeface.BOLD)
+            typeface = Typeface.create(persianTypeface, if (bold) Typeface.BOLD else Typeface.NORMAL)
             gravity = Gravity.CENTER_VERTICAL
         }
 
@@ -558,6 +585,7 @@ class MainActivity : Activity() {
     }
 
     private fun launchApp(app: AppItem) {
+        recordRecentApp(app.packageName)
         val key = (app.label + " " + app.packageName).lowercase(Locale.ROOT)
         when {
             app.packageName == "alps.internal.booster" || key.contains("audio booster") || key.contains("تقویت صدا") -> audioBoosterDialog.show()
@@ -1422,8 +1450,38 @@ class MainActivity : Activity() {
         val grid = findViewById<RecyclerView>(R.id.appGrid)
         grid.layoutManager = GridLayoutManager(this, 5)
         val allApps = loadApps()
-        val appAdapter = AppAdapter(allApps.toMutableList()) { app -> launchApp(app) }
+        lateinit var appAdapter: AppAdapter
+        appAdapter = AppAdapter(
+            allApps.toMutableList(),
+            onClick = { app -> launchApp(app) },
+            onLongClick = { app ->
+                if (!app.packageName.startsWith("alps.internal.")) {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        val favorite = settingsStore.toggleFavorite(app.packageName)
+                        val favorites = settingsStore.favoritePackages()
+                        runOnUiThread {
+                            appAdapter.submitItems(allApps.sortedWith(
+                                compareByDescending<AppItem> { it.packageName in favorites }
+                                    .thenBy { it.label.lowercase(Locale.ROOT) }
+                            ))
+                            Toast.makeText(this@MainActivity,
+                                if (favorite) "به علاقه‌مندی‌ها اضافه شد" else "از علاقه‌مندی‌ها حذف شد",
+                                Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+        )
         grid.adapter = appAdapter
+        CoroutineScope(Dispatchers.IO).launch {
+            val favorites = settingsStore.favoritePackages()
+            runOnUiThread {
+                if (!isFinishing) appAdapter.submitItems(allApps.sortedWith(
+                    compareByDescending<AppItem> { it.packageName in favorites }
+                        .thenBy { it.label.lowercase(Locale.ROOT) }
+                ))
+            }
+        }
         val search = findViewById<EditText>(R.id.appSearch)
         val emptyState = findViewById<TextView>(R.id.appEmpty)
         search.addTextChangedListener(object : android.text.TextWatcher {
@@ -1488,7 +1546,114 @@ class MainActivity : Activity() {
     }
 
     private fun openSettings() {
-        startActivity(Intent(Settings.ACTION_SETTINGS))
+        val options = arrayOf("تنظیمات سیستم", "هواشناسی", "اعلان‌ها", "برنامه‌های اخیر",
+            "Wi-Fi", "Bluetooth", "تنظیمات نمایشگر")
+        android.app.AlertDialog.Builder(this)
+            .setTitle("تنظیمات ALPS")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> launchSafely(Intent(Settings.ACTION_SETTINGS))
+                    1 -> showWeather()
+                    2 -> showNotifications()
+                    3 -> showRecentApps()
+                    4 -> launchSafely(Intent(Settings.ACTION_WIFI_SETTINGS))
+                    5 -> launchSafely(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                    6 -> launchSafely(Intent(Settings.ACTION_DISPLAY_SETTINGS))
+                }
+            }
+            .setNegativeButton("بستن", null)
+            .show()
+    }
+
+    private fun showNotifications() {
+        val items = MediaAccessService.activeItems
+        if (items.isEmpty()) {
+            android.app.AlertDialog.Builder(this).setTitle("اعلان‌ها")
+                .setMessage("اعلان فعالی برای نمایش وجود ندارد یا دسترسی اعلان‌ها فعال نیست.")
+                .setPositiveButton("باشه", null).show()
+            return
+        }
+        val labels = items.map { row ->
+            if (row.text.isBlank()) row.title else row.title + "\n" + row.text
+        }.toTypedArray()
+        android.app.AlertDialog.Builder(this).setTitle("اعلان‌ها")
+            .setItems(labels) { _, index ->
+                try { items[index].contentIntent?.send() } catch (_: Exception) {}
+            }
+            .setNegativeButton("بستن", null).show()
+    }
+
+    private fun recordRecentApp(packageName: String) {
+        if (packageName.startsWith("alps.internal.")) return
+        val prefs = getSharedPreferences("alps_recent_apps", MODE_PRIVATE)
+        val previous = prefs.getString("packages", "").orEmpty().split("|").filter { it.isNotBlank() }
+        val updated = (listOf(packageName) + previous.filterNot { it == packageName }).take(12)
+        prefs.edit().putString("packages", updated.joinToString("|")).apply()
+    }
+
+    private fun showRecentApps() {
+        val packages = getSharedPreferences("alps_recent_apps", MODE_PRIVATE)
+            .getString("packages", "").orEmpty().split("|").filter { it.isNotBlank() }
+        val available = packages.mapNotNull { pkg ->
+            try { pkg to packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }
+            catch (_: Exception) { null }
+        }
+        if (available.isEmpty()) {
+            android.app.AlertDialog.Builder(this).setTitle("برنامه‌های اخیر")
+                .setMessage("هنوز برنامه‌ای از لانچر اجرا نشده است.")
+                .setPositiveButton("باشه", null).show()
+            return
+        }
+        android.app.AlertDialog.Builder(this).setTitle("برنامه‌های اخیر")
+            .setItems(available.map { it.second }.toTypedArray()) { _, index ->
+                val intent = packageManager.getLaunchIntentForPackage(available[index].first)
+                if (intent != null) launchSafely(intent)
+            }.setNegativeButton("بستن", null).show()
+    }
+
+    private fun showWeather() {
+        val location = lastLocation ?: try {
+            val manager = getSystemService(LOCATION_SERVICE) as LocationManager
+            val fine = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            val coarse = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            if (fine || coarse) manager.getLastKnownLocation(
+                if (fine && manager.isProviderEnabled(LocationManager.GPS_PROVIDER))
+                    LocationManager.GPS_PROVIDER else LocationManager.NETWORK_PROVIDER
+            ) else null
+        } catch (_: Exception) { null }
+        if (location == null) {
+            Toast.makeText(this, "برای دریافت هواشناسی ابتدا دسترسی موقعیت مکانی را فعال کن", Toast.LENGTH_LONG).show()
+            startLocationUpdates()
+            return
+        }
+        val message = text("در حال دریافت وضعیت آب‌وهوا…", 16f, white)
+        val dialog = android.app.AlertDialog.Builder(this).setTitle("هواشناسی")
+            .setView(message).setPositiveButton("بستن", null).create()
+        dialog.show()
+        Thread {
+            val result = try {
+                val endpoint = "https://api.open-meteo.com/v1/forecast?latitude=" + location.latitude +
+                    "&longitude=" + location.longitude +
+                    "&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"
+                val json = java.net.URL(endpoint).openConnection().apply {
+                    connectTimeout = 7000; readTimeout = 7000
+                }.getInputStream().bufferedReader().use { it.readText() }
+                val current = org.json.JSONObject(json).getJSONObject("current")
+                val temperature = current.optDouble("temperature_2m")
+                val humidity = current.optInt("relative_humidity_2m")
+                val wind = current.optDouble("wind_speed_10m")
+                val code = current.optInt("weather_code")
+                val condition = when (code) {
+                    0 -> "صاف"; 1, 2 -> "کمی ابری"; 3 -> "ابری"; 45, 48 -> "مه‌آلود"
+                    51, 53, 55, 61, 63, 65, 80, 81, 82 -> "بارانی"
+                    71, 73, 75, 77, 85, 86 -> "برفی"; 95, 96, 99 -> "رعدوبرق"
+                    else -> "شرایط متغیر"
+                }
+                "دما: " + temperature + "°C\nوضعیت: " + condition +
+                    "\nرطوبت: " + humidity + "٪\nسرعت باد: " + wind + " km/h"
+            } catch (_: Exception) { "دریافت اطلاعات هواشناسی ممکن نشد. اتصال اینترنت را بررسی کن." }
+            runOnUiThread { if (!isFinishing && dialog.isShowing) message.text = result }
+        }.start()
     }
 
     override fun onStart() { super.onStart(); mapView.onStart() }
