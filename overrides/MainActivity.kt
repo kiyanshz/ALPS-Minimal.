@@ -805,6 +805,7 @@ class MainActivity : Activity() {
         val nowPlaying = text("در حال پخش", 14f * sx, Color.rgb(161, 161, 170))
             .apply { gravity = Gravity.START }
         mediaPanel.addView(nowPlaying, LinearLayout.LayoutParams(-1, pxY(30)))
+        mediaPanel.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
 
         dashboardCover = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
@@ -823,6 +824,7 @@ class MainActivity : Activity() {
             topMargin = pxY(10)
             bottomMargin = pxY(12)
         })
+        mediaPanel.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
 
         homeTrackTitle = text("—", 30f * sx, Color.WHITE, true).apply {
             gravity = Gravity.CENTER
@@ -836,6 +838,7 @@ class MainActivity : Activity() {
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
         mediaPanel.addView(homeTrackArtist, LinearLayout.LayoutParams(-1, pxY(30)))
+        mediaPanel.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
 
         val mediaTimes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         dashboardElapsed = text("۰:۰۰", 13f * sx, Color.rgb(161, 161, 170))
@@ -863,6 +866,7 @@ class MainActivity : Activity() {
             })
         }
         mediaPanel.addView(dashboardSeek, LinearLayout.LayoutParams(-1, pxY(32)))
+        mediaPanel.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
 
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1469,8 +1473,8 @@ class MainActivity : Activity() {
                 dashboardPlayButton?.text = if (playing) "Ⅱ" else "▶"
                 dashboardCover?.let { if (art != null) it.setImageDrawable(BitmapDrawable(resources, art)) else it.setImageDrawable(rounded(panel2, 24)) }
                 val positionNow = currentPlaybackPosition(selected?.playbackState)
-                dashboardElapsed?.text = formatTime(positionNow)
-                dashboardDuration?.text = formatTime(metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L)
+                dashboardElapsed?.text = persianDigits(formatTime(positionNow))
+                dashboardDuration?.text = persianDigits(formatTime(metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L))
                 dashboardSeek?.isEnabled = lastDuration > 0L
                 if (!userSeeking) dashboardSeek?.progress = if (lastDuration > 0) ((positionNow.toDouble() / lastDuration) * 1000.0).toInt().coerceIn(0,1000) else 0
             }
