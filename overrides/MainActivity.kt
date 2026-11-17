@@ -195,17 +195,37 @@ private class LiquidGlassWallpaperDrawable : android.graphics.drawable.Drawable(
 }
 
 class MediaAccessService : NotificationListenerService() {
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        // Notifications that were already present before the listener connected
+        // are important on head units where the media player stays running.
+        try { activeNotifications?.forEach { captureArtwork(it) } } catch (_: Exception) {}
+    }
+
     override fun onNotificationPosted(sbn: android.service.notification.StatusBarNotification) {
+        captureArtwork(sbn)
+    }
+
+    override fun onNotificationRemoved(sbn: android.service.notification.StatusBarNotification) {
+        // Keep the last valid image until the next active media session supplies
+        // its own metadata; clearing it here causes a visible placeholder flash.
+    }
+
+    private fun captureArtwork(sbn: android.service.notification.StatusBarNotification) {
         try {
-            val extras = sbn.notification.extras
-            // Prefer artwork explicitly attached to the media notification.
-            // A generic app icon is deliberately not treated as album artwork.
+            val extras = sbn.notification.extras ?: return
+            // MediaStyle notifications use several different extra keys across
+            // Android versions and music apps. Never use the small app icon as art.
             val notificationArtwork =
-                (extras.get("android.picture") as? Bitmap)
+                (extras.get("android.mediaSession.artwork") as? Bitmap)
+                    ?: (extras.get("android.picture") as? Bitmap)
                     ?: (extras.get("android.largeIcon.big") as? Bitmap)
-                    ?: (extras.get("android.mediaSession.artwork") as? Bitmap)
                     ?: (extras.get("android.largeIcon") as? Bitmap)
-            if (notificationArtwork != null) {
+                    ?: (extras.get(android.app.Notification.EXTRA_PICTURE) as? Bitmap)
+                    ?: if (Build.VERSION.SDK_INT >= 23) {
+                        (extras.getParcelable(android.app.Notification.EXTRA_LARGE_ICON) as? Bitmap)
+                    } else null
+            if (notificationArtwork != null && !notificationArtwork.isRecycled) {
                 latestArtwork = notificationArtwork
                 latestArtworkPackage = sbn.packageName
             }
@@ -842,7 +862,7 @@ class MainActivity : Activity() {
                 override fun onStartTrackingTouch(seekBar: SeekBar?) { userSeeking = true }
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
                     userSeeking = false
-                    if (lastDuration > 0) activeController?.transportControls?.seekTo((progress / 1000.0 * lastDuration).toLong())
+                    seekToPosition(seekBar?.progress ?: 0)
                 }
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     if (fromUser && lastDuration > 0) dashboardElapsed?.text = formatTime((progress / 1000.0 * lastDuration).toLong())
@@ -1127,7 +1147,7 @@ class MainActivity : Activity() {
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
                     userSeeking = false
                     val duration = lastDuration
-                    if (duration > 0) activeController?.transportControls?.seekTo((this@MainActivity.seekBar.progress / 1000.0 * duration).toLong())
+                    seekToPosition(this@MainActivity.seekBar.progress)
                 }
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     if (fromUser && lastDuration > 0) elapsedView.text = formatTime((progress / 1000.0 * lastDuration).toLong())
@@ -1178,6 +1198,8 @@ class MainActivity : Activity() {
         if (!notificationAccessEnabled()) {
             updateAppsNowPlaying(null, null, null)
             activeController = null
+            lastDuration = 0L
+            userSeeking = false
             dashboardSeek?.isEnabled = false
             if (::seekBar.isInitialized) seekBar.isEnabled = false
             if (::trackTitle.isInitialized) {
@@ -1260,6 +1282,31 @@ class MainActivity : Activity() {
             }
         } catch (_: Exception) {
             // A media app may disappear while the session list is being refreshed.
+        }
+    }
+
+    private fun seekToPosition(progress: Int) {
+        val duration = lastDuration
+        val controller = activeController
+        if (duration <= 0L || controller == null) {
+            Toast.makeText(this, "موقعیت آهنگ در دسترس نیست", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val target = ((progress.coerceIn(0, 1000) / 1000.0) * duration)
+            .toLong().coerceIn(0L, duration)
+        try {
+            // Some Bluetooth/head-unit sessions omit ACTION_SEEK_TO even though
+            // their transport controls accept seekTo, so send the command rather
+            // than disabling the user's seek gesture based only on the action bit.
+            controller.transportControls.seekTo(target)
+            handler.postDelayed({
+                if (!isFinishing) {
+                    refreshMedia()
+                    updatePosition()
+                }
+            }, 280L)
+        } catch (_: Exception) {
+            Toast.makeText(this, "این پخش‌کننده از جلو/عقب بردن آهنگ پشتیبانی نمی‌کند", Toast.LENGTH_SHORT).show()
         }
     }
 
