@@ -1547,7 +1547,7 @@ class MainActivity : Activity() {
 
     private fun openSettings() {
         val options = arrayOf("تنظیمات سیستم", "هواشناسی", "اعلان‌ها", "برنامه‌های اخیر",
-            "Wi-Fi", "Bluetooth", "تنظیمات نمایشگر")
+            "Wi-Fi", "Bluetooth", "کنترل روشنایی", "Hotspot")
         android.app.AlertDialog.Builder(this)
             .setTitle("تنظیمات ALPS")
             .setItems(options) { _, which ->
@@ -1558,11 +1558,40 @@ class MainActivity : Activity() {
                     3 -> showRecentApps()
                     4 -> launchSafely(Intent(Settings.ACTION_WIFI_SETTINGS))
                     5 -> launchSafely(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
-                    6 -> launchSafely(Intent(Settings.ACTION_DISPLAY_SETTINGS))
+                    6 -> openBrightnessControl()
+                    7 -> launchSafely(Intent(Settings.ACTION_WIRELESS_SETTINGS))
                 }
             }
             .setNegativeButton("بستن", null)
             .show()
+    }
+
+    private fun openBrightnessControl() {
+        if (Build.VERSION.SDK_INT >= 23 && !Settings.System.canWrite(this)) {
+            launchSafely(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:" + packageName)),
+                "دسترسی تغییر روشنایی در دسترس نیست")
+            return
+        }
+        val current = try {
+            Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS).coerceIn(5, 255)
+        } catch (_: Exception) { 180 }
+        val seek = SeekBar(this).apply {
+            max = 100
+            progress = (current * 100 / 255).coerceIn(5, 100)
+        }
+        android.app.AlertDialog.Builder(this).setTitle("روشنایی صفحه")
+            .setView(seek)
+            .setPositiveButton("اعمال") { _, _ ->
+                try {
+                    Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE,
+                        Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
+                    Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS,
+                        (seek.progress.coerceIn(5, 100) * 255) / 100)
+                } catch (_: Exception) {
+                    Toast.makeText(this, "تغییر روشنایی مجاز نیست", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("انصراف", null).show()
     }
 
     private fun showNotifications() {
