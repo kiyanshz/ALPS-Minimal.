@@ -52,6 +52,9 @@ import org.maplibre.android.maps.Style
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 
 
@@ -102,7 +105,24 @@ private class AudioBoosterDialog(
     private val names = arrayOf("Off", "Low", "Medium", "High")
 
     fun restore() {
-        apply(prefs.getInt("level", 0).coerceIn(0, levels.lastIndex))
+        val savedGain = prefs.getInt("dashboard_gain", -1)
+        if (savedGain >= 0) setDashboardGain(savedGain)
+        else apply(prefs.getInt("level", 0).coerceIn(0, levels.lastIndex))
+    }
+
+    fun dashboardGain(): Int =
+        prefs.getInt("dashboard_gain", (levels[prefs.getInt("level", 2).coerceIn(0, levels.lastIndex)] / 15).coerceIn(0, 100))
+
+    fun setDashboardGain(progress: Int) {
+        val value = progress.coerceIn(0, 100)
+        if (value == 0) booster.disable() else booster.enable(value * 15)
+        val legacyLevel = when {
+            value == 0 -> 0
+            value < 35 -> 1
+            value < 70 -> 2
+            else -> 3
+        }
+        prefs.edit().putInt("dashboard_gain", value).putInt("level", legacyLevel).apply()
     }
 
     fun show() {
@@ -146,7 +166,7 @@ private class AudioBoosterDialog(
             booster.isOn -> booster.setGain(levels[level])
             else -> booster.enable(levels[level])
         }
-        prefs.edit().putInt("level", level).apply()
+        prefs.edit().putInt("level", level).putInt("dashboard_gain", levels[level] / 15).apply()
     }
 }
 
@@ -194,18 +214,54 @@ private class LiquidGlassWallpaperDrawable : android.graphics.drawable.Drawable(
     override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 }
 
+data class ActiveNotificationRow(val title: String, val text: String, val packageName: String, val contentIntent: android.app.PendingIntent?)
+
 class MediaAccessService : NotificationListenerService() {
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        // Notifications that were already present before the listener connected
+        // are important on head units where the media player stays running.
+        try { activeNotifications?.forEach { captureArtwork(it) } } catch (_: Exception) {}
+        refreshNotificationSnapshot()
+    }
+
     override fun onNotificationPosted(sbn: android.service.notification.StatusBarNotification) {
+        captureArtwork(sbn)
+        refreshNotificationSnapshot()
+    }
+
+    override fun onNotificationRemoved(sbn: android.service.notification.StatusBarNotification) {
+        refreshNotificationSnapshot()
+    }
+
+    private fun refreshNotificationSnapshot() {
         try {
-            val extras = sbn.notification.extras
-            // Prefer artwork explicitly attached to the media notification.
-            // A generic app icon is deliberately not treated as album artwork.
+            activeItems = activeNotifications.orEmpty().mapNotNull { sbn ->
+                val extras = sbn.notification.extras
+                val title = extras.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString().orEmpty()
+                val body = extras.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString()
+                    ?: extras.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT)?.toString().orEmpty()
+                if (title.isBlank() && body.isBlank()) null
+                else ActiveNotificationRow(title.ifBlank { sbn.packageName }, body, sbn.packageName, sbn.notification.contentIntent)
+            }
+        } catch (_: Exception) { activeItems = emptyList() }
+    }
+
+    private fun captureArtwork(sbn: android.service.notification.StatusBarNotification) {
+        try {
+            val extras = sbn.notification.extras ?: return
+            // MediaStyle notifications use several different extra keys across
+            // Android versions and music apps. Never use the small app icon as art.
             val notificationArtwork =
-                (extras.get("android.picture") as? Bitmap)
+                (extras.get("android.mediaSession.artwork") as? Bitmap)
+                    ?: (extras.get("android.picture") as? Bitmap)
                     ?: (extras.get("android.largeIcon.big") as? Bitmap)
-                    ?: (extras.get("android.mediaSession.artwork") as? Bitmap)
                     ?: (extras.get("android.largeIcon") as? Bitmap)
-            if (notificationArtwork != null) {
+                    ?: (extras.get(android.app.Notification.EXTRA_PICTURE) as? Bitmap)
+                    ?: if (Build.VERSION.SDK_INT >= 23) {
+                        (extras.getParcelable(android.app.Notification.EXTRA_LARGE_ICON) as? Bitmap)
+                    } else null
+            if (notificationArtwork != null && !notificationArtwork.isRecycled) {
                 latestArtwork = notificationArtwork
                 latestArtworkPackage = sbn.packageName
             }
@@ -216,6 +272,7 @@ class MediaAccessService : NotificationListenerService() {
     companion object {
         @Volatile var latestArtwork: Bitmap? = null
         @Volatile var latestArtworkPackage: String? = null
+        @Volatile var activeItems: List<ActiveNotificationRow> = emptyList()
     }
 }
 
@@ -231,6 +288,7 @@ class MainActivity : Activity() {
     private var resolvedArtworkUri: String? = null
     private var resolvedArtworkBitmap: Bitmap? = null
     private var failedArtworkUri: String? = null
+    private lateinit var settingsStore: LauncherSettingsStore
     private var appsScreenVisible = false
     private var notificationAccessPrompted = false
     private var appsNowPlayingCard: View? = null
@@ -321,6 +379,7 @@ class MainActivity : Activity() {
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE)
         MapLibre.getInstance(this)
+        settingsStore = LauncherSettingsStore(this)
         audioBoosterDialog = AudioBoosterDialog(this, volumeBooster)
         audioBoosterDialog.restore()
         mapView = MapView(this)
@@ -355,12 +414,17 @@ class MainActivity : Activity() {
         setPadding(dp(22), dp(16), dp(22), dp(12))
     }
 
+    private val persianTypeface: Typeface by lazy {
+        try { Typeface.createFromAsset(assets, "fonts/Vazirmatn-Regular.ttf") }
+        catch (_: Exception) { Typeface.create("sans-serif", Typeface.NORMAL) }
+    }
+
     private fun text(value: String, size: Float, color: Int = white, bold: Boolean = false): TextView =
         TextView(this).apply {
             text = value
             textSize = size
             setTextColor(color)
-            if (bold) setTypeface(Typeface.DEFAULT, Typeface.BOLD)
+            typeface = Typeface.create(persianTypeface, if (bold) Typeface.BOLD else Typeface.NORMAL)
             gravity = Gravity.CENTER_VERTICAL
         }
 
@@ -538,6 +602,7 @@ class MainActivity : Activity() {
     }
 
     private fun launchApp(app: AppItem) {
+        recordRecentApp(app.packageName)
         val key = (app.label + " " + app.packageName).lowercase(Locale.ROOT)
         when {
             app.packageName == "alps.internal.booster" || key.contains("audio booster") || key.contains("تقویت صدا") -> audioBoosterDialog.show()
@@ -655,6 +720,8 @@ class MainActivity : Activity() {
 
     // Landscape-first CarPlay-inspired split dashboard: persistent side rail,
     // live navigation map and compact now-playing card on one screen.
+    // Native Android implementation of the supplied 1280x720 CarPlay reference.
+    // Layout dimensions scale independently with the real landscape display.
     private fun showCarPlayDashboard() {
         appsScreenVisible = false
         dashboardTab = 1
@@ -664,222 +731,398 @@ class MainActivity : Activity() {
         handler.removeCallbacks(clockTick)
         handler.removeCallbacks(mediaTick)
 
+        val metrics = resources.displayMetrics
+        val sx = metrics.widthPixels / 1280f
+        val sy = metrics.heightPixels / 720f
+        fun pxX(value: Int) = (value * sx).toInt().coerceAtLeast(1)
+        fun pxY(value: Int) = (value * sy).toInt().coerceAtLeast(1)
+        fun panelBackground(radius: Int = 28) = GradientDrawable().apply {
+            setColor(Color.rgb(28, 28, 30))
+            cornerRadius = pxX(radius).toFloat()
+        }
+        fun glyph(symbol: String, size: Float, color: Int = Color.WHITE): TextView =
+            text(symbol, size, color, true).apply { gravity = Gravity.CENTER }
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(10), dp(9), dp(14), dp(9))
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(8, 13, 22), Color.rgb(14, 21, 34), Color.rgb(7, 11, 19))
-            )
+            setBackgroundColor(Color.BLACK)
         }
 
+        // Left navigation rail (104 px in the design reference).
         val rail = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            background = GradientDrawable().apply {
-                setColor(Color.argb(220, 23, 31, 45))
-                cornerRadius = dp(25).toFloat()
-                setStroke(dp(1), Color.argb(34, 255, 255, 255))
-            }
-            setPadding(dp(5), dp(8), dp(5), dp(8))
+            setBackgroundColor(Color.rgb(17, 17, 20))
+            setPadding(0, pxY(24), 0, pxY(18))
         }
-        val logo = TextView(this).apply {
-            text = "A"
-            textSize = 23f
-            setTypeface(Typeface.DEFAULT, Typeface.BOLD)
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(74, 166, 255), Color.rgb(35, 92, 184))).apply {
-                cornerRadius = dp(16).toFloat()
-            }
-        }
-        rail.addView(logo, LinearLayout.LayoutParams(dp(48), dp(48)).apply { bottomMargin = dp(14) })
-
-        fun railItem(symbol: String, caption: String, selected: Boolean = false, click: () -> Unit) {
-            val item = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
+        fun railButton(symbol: String, color: Int, label: String, click: () -> Unit) {
+            val item = TextView(this).apply {
+                text = symbol
+                textSize = 29f * sx
+                setTextColor(Color.WHITE)
                 gravity = Gravity.CENTER
-                background = if (selected) GradientDrawable().apply {
-                    setColor(Color.argb(72, 69, 153, 255))
-                    cornerRadius = dp(15).toFloat()
-                    setStroke(dp(1), Color.argb(105, 100, 177, 255))
-                } else rounded(Color.TRANSPARENT, 15)
+                background = GradientDrawable().apply {
+                    setColor(color)
+                    cornerRadius = pxX(20).toFloat()
+                }
+                contentDescription = label
                 isClickable = true
                 isFocusable = true
                 setOnClickListener { click() }
             }
-            item.addView(TextView(this).apply {
-                text = symbol
-                textSize = 23f
-                gravity = Gravity.CENTER
-                setTextColor(if (selected) Color.rgb(133, 196, 255) else Color.rgb(205, 215, 231))
-            }, LinearLayout.LayoutParams(-1, dp(34)))
-            item.addView(TextView(this).apply {
-                text = caption
-                textSize = 8f
-                gravity = Gravity.CENTER
-                setTextColor(if (selected) Color.rgb(155, 205, 255) else Color.rgb(145, 157, 176))
-            }, LinearLayout.LayoutParams(-1, dp(16)))
-            rail.addView(item, LinearLayout.LayoutParams(dp(54), dp(58)).apply { bottomMargin = dp(7) })
+            rail.addView(item, LinearLayout.LayoutParams(pxX(68), pxY(68)).apply {
+                bottomMargin = pxY(16)
+            })
         }
-        railItem("⌂", "HOME", true) { showHome() }
-        railItem("▦", "APPS") { showApps() }
-        railItem("⌖", "MAP") { showMap() }
-        railItem("♫", "MUSIC") { showMusic() }
-        railItem("☎", "PHONE") { showPhoneHub() }
+        railButton("⌖", Color.rgb(48, 209, 88), "نقشه نشان") { showMap() }
+        railButton("♫", Color.rgb(255, 55, 95), "موسیقی") { showMusic() }
+        railButton("☎", Color.rgb(10, 132, 255), "تماس") { showPhoneHub() }
+        railButton("▦", Color.rgb(44, 44, 46), "همه برنامه‌ها") { showApps() }
+
         val railSpacer = View(this)
         rail.addView(railSpacer, LinearLayout.LayoutParams(1, 0, 1f))
-        railItem("⚙", "SETTINGS") { openSettings() }
-        root.addView(rail, LinearLayout.LayoutParams(dp(66), -1).apply { rightMargin = dp(12) })
+        clockView = text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()),
+            30f * sx, Color.WHITE, true).apply { gravity = Gravity.CENTER }
+        dateView = text(formatPersianDate(Date()), 14f * sx, Color.rgb(161, 161, 170))
+            .apply { gravity = Gravity.CENTER; maxLines = 1 }
+        rail.addView(clockView, LinearLayout.LayoutParams(-1, pxY(40)))
+        rail.addView(dateView, LinearLayout.LayoutParams(-1, pxY(24)))
+        root.addView(rail, LinearLayout.LayoutParams(pxX(104), -1))
 
+        // Main canvas: music card on the left, map and utility cards on the right.
         val main = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        val top = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(5), 0, dp(5), dp(9))
+            setPadding(pxX(24), pxY(24), pxX(24), pxY(24))
         }
-        val heading = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        heading.addView(text("Good evening", 11f, Color.rgb(147, 164, 188)))
-        heading.addView(text("Your drive", 20f, white, true))
-        top.addView(heading, LinearLayout.LayoutParams(0, dp(45), 1f))
-        val clockStack = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
-        clockView = text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()), 23f, white, true).apply { gravity = Gravity.CENTER }
-        dateView = text(formatPersianDate(Date()), 10f, Color.rgb(190, 204, 224), true).apply { gravity = Gravity.CENTER }
-        clockStack.addView(clockView, LinearLayout.LayoutParams(-1, dp(29)))
-        clockStack.addView(dateView, LinearLayout.LayoutParams(-1, dp(18)))
-        top.addView(clockStack, LinearLayout.LayoutParams(dp(160), dp(48)))
-        main.addView(top)
-
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-
-        val mapPanel = FrameLayout(this).apply {
-            background = rounded(Color.rgb(19, 29, 43), 26)
-            clipToOutline = true
-            elevation = dp(4).toFloat()
-        }
-        dashboardMapFrame = mapPanel
-        mapView.isClickable = true
-        mapPanel.addView(mapView, FrameLayout.LayoutParams(-1, -1))
-        val mapHeader = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = GradientDrawable().apply {
-                setColor(Color.argb(218, 13, 22, 36))
-                cornerRadius = dp(15).toFloat()
-                setStroke(dp(1), Color.argb(45, 255, 255, 255))
-            }
-            setPadding(dp(13), dp(8), dp(13), dp(8))
-        }
-        mapHeader.addView(text("NESHAN  •  MAP", 10f, Color.rgb(139, 194, 255), true))
-        mapPanel.addView(mapHeader, FrameLayout.LayoutParams(-2, dp(42), Gravity.TOP or Gravity.START).apply {
-            leftMargin = dp(12); topMargin = dp(12)
-        })
-        val recenter = action("◎") {
-            lastLocation?.let { loc ->
-                mapView.getMapAsync { map ->
-                    map.cameraPosition = CameraPosition.Builder()
-                        .target(LatLng(loc.latitude, loc.longitude)).zoom(16.0).build()
-                }
-            } ?: startLocationUpdates()
-        }.apply { textSize = 21f; background = rounded(Color.argb(225, 16, 28, 46), 18) }
-        mapPanel.addView(recenter, FrameLayout.LayoutParams(dp(52), dp(52), Gravity.BOTTOM or Gravity.END).apply {
-            rightMargin = dp(14); bottomMargin = dp(14)
-        })
-        content.addView(mapPanel, LinearLayout.LayoutParams(0, -1, 1.28f).apply { rightMargin = dp(12) })
 
         val mediaPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(31, 43, 62), Color.rgb(18, 26, 41))).apply {
-                cornerRadius = dp(26).toFloat()
-                setStroke(dp(1), Color.argb(48, 255, 255, 255))
-            }
-            setPadding(dp(15), dp(13), dp(15), dp(12))
-            elevation = dp(4).toFloat()
+            background = panelBackground()
+            setPadding(pxX(28), pxY(24), pxX(28), pxY(22))
+            clipToOutline = true
         }
+        val nowPlaying = text("در حال پخش", 14f * sx, Color.rgb(161, 161, 170))
+            .apply { gravity = Gravity.START }
+        mediaPanel.addView(nowPlaying, LinearLayout.LayoutParams(-1, pxY(30)))
+        mediaPanel.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
 
         dashboardCover = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
-            background = rounded(Color.rgb(45, 61, 84), 20)
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(255, 55, 95), Color.rgb(94, 92, 230))
+            ).apply { cornerRadius = pxX(28).toFloat() }
             clipToOutline = true
-            setImageDrawable(rounded(Color.rgb(45, 61, 84), 20))
-            elevation = dp(5).toFloat()
+            setImageDrawable(GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(255, 55, 95), Color.rgb(94, 92, 230))
+            ).apply { cornerRadius = pxX(28).toFloat() })
         }
-        mediaPanel.addView(dashboardCover, LinearLayout.LayoutParams(dp(116), dp(116)).apply {
+        mediaPanel.addView(dashboardCover, LinearLayout.LayoutParams(pxX(240), pxY(240)).apply {
             gravity = Gravity.CENTER
-            topMargin = dp(7); bottomMargin = dp(8)
+            topMargin = pxY(10)
+            bottomMargin = pxY(12)
         })
-        homeTrackTitle = text("—", 15f, white, true).apply {
-            gravity = Gravity.CENTER
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        }
-        mediaPanel.addView(homeTrackTitle, LinearLayout.LayoutParams(-1, dp(27)))
-        homeTrackArtist = text("", 11f, Color.rgb(169, 180, 198)).apply {
-            gravity = Gravity.CENTER
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        }
-        mediaPanel.addView(homeTrackArtist, LinearLayout.LayoutParams(-1, dp(22)))
+        mediaPanel.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
 
-        val times = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        dashboardElapsed = text("0:00", 10f, Color.rgb(165, 179, 200))
-        dashboardDuration = text("0:00", 10f, Color.rgb(165, 179, 200)).apply { gravity = Gravity.END }
-        times.addView(dashboardElapsed, LinearLayout.LayoutParams(0, dp(19), 1f))
-        times.addView(dashboardDuration, LinearLayout.LayoutParams(0, dp(19), 1f))
-        mediaPanel.addView(times)
+        homeTrackTitle = text("—", 30f * sx, Color.WHITE, true).apply {
+            gravity = Gravity.CENTER
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        mediaPanel.addView(homeTrackTitle, LinearLayout.LayoutParams(-1, pxY(42)))
+        homeTrackArtist = text(" ", 19f * sx, Color.rgb(161, 161, 170)).apply {
+            gravity = Gravity.CENTER
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        mediaPanel.addView(homeTrackArtist, LinearLayout.LayoutParams(-1, pxY(30)))
+        mediaPanel.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
+
+        val mediaTimes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        dashboardElapsed = text("۰:۰۰", 13f * sx, Color.rgb(161, 161, 170))
+        dashboardDuration = text("۰:۰۰", 13f * sx, Color.rgb(161, 161, 170)).apply { gravity = Gravity.END }
+        mediaTimes.addView(dashboardElapsed, LinearLayout.LayoutParams(0, pxY(22), 1f))
+        mediaTimes.addView(dashboardDuration, LinearLayout.LayoutParams(0, pxY(22), 1f))
+        mediaPanel.addView(mediaTimes, LinearLayout.LayoutParams(-1, pxY(22)).apply { topMargin = pxY(4) })
+
         dashboardSeek = SeekBar(this).apply {
             max = 1000
-            progressTintList = android.content.res.ColorStateList.valueOf(Color.rgb(101, 176, 255))
+            progressTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
             thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(58, 58, 60))
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onStartTrackingTouch(seekBar: SeekBar?) { userSeeking = true }
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
                     userSeeking = false
-                    if (lastDuration > 0) activeController?.transportControls?.seekTo((progress / 1000.0 * lastDuration).toLong())
+                    seekToPosition(seekBar?.progress ?: 0)
                 }
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    if (fromUser && lastDuration > 0) dashboardElapsed?.text = formatTime((progress / 1000.0 * lastDuration).toLong())
+                    if (fromUser && lastDuration > 0L) {
+                        dashboardElapsed?.text = persianDigits(formatTime((progress / 1000.0 * lastDuration).toLong()))
+                    }
                 }
             })
         }
-        mediaPanel.addView(dashboardSeek, LinearLayout.LayoutParams(-1, dp(28)))
+        mediaPanel.addView(dashboardSeek, LinearLayout.LayoutParams(-1, pxY(32)))
+        mediaPanel.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
 
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
-        controls.addView(action("⏮") { activeController?.transportControls?.skipToPrevious() },
-            LinearLayout.LayoutParams(0, dp(45), 1f).apply { rightMargin = dp(5) })
-        dashboardPlayButton = action("▶") { togglePlayback() }.apply {
-            textSize = 22f
-            background = GradientDrawable().apply {
-                setColor(Color.rgb(77, 151, 235))
-                cornerRadius = dp(16).toFloat()
-            }
+        fun mediaControl(symbol: String, label: String, size: Int = 64, click: () -> Unit): TextView =
+            glyph(symbol, if (symbol == "Ⅱ" || symbol == "▶") 37f * sx else 31f * sx).apply {
+                contentDescription = label
+                setBackgroundColor(Color.TRANSPARENT)
+                isClickable = true
+                setOnClickListener { click() }
+            }.also { controls.addView(it, LinearLayout.LayoutParams(pxX(size), pxY(size))) }
+
+        mediaControl("⏮", "قبلی") {
+            activeController?.transportControls?.skipToPrevious()
+            handler.postDelayed({ refreshMedia() }, 300)
+        }
+        dashboardPlayButton = glyph("▶", 40f * sx).apply {
+            contentDescription = "پخش یا توقف"
+            isClickable = true
+            setOnClickListener { togglePlayback() }
         }
         homePlayPauseButton = dashboardPlayButton!!
         homeCoverView = dashboardCover!!
-        controls.addView(dashboardPlayButton, LinearLayout.LayoutParams(0, dp(48), 1.25f))
-        controls.addView(action("⏭") { activeController?.transportControls?.skipToNext() },
-            LinearLayout.LayoutParams(0, dp(45), 1f).apply { leftMargin = dp(5) })
-        mediaPanel.addView(controls, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(4) })
+        controls.addView(dashboardPlayButton, LinearLayout.LayoutParams(pxX(72), pxY(64)))
+        mediaControl("⏭", "بعدی") {
+            activeController?.transportControls?.skipToNext()
+            handler.postDelayed({ refreshMedia() }, 300)
+        }
+        mediaPanel.addView(controls, LinearLayout.LayoutParams(-1, pxY(66)).apply {
+            topMargin = pxY(6)
+        })
 
-        val openPlayer = action("OPEN MUSIC PLAYER  ↗") { showMusic() }
-        openPlayer.background = rounded(Color.argb(55, 103, 168, 255), 14)
-        mediaPanel.addView(openPlayer, LinearLayout.LayoutParams(-1, dp(39)).apply { topMargin = dp(7) })
-        content.addView(mediaPanel, LinearLayout.LayoutParams(0, -1, 0.82f))
+        main.addView(mediaPanel, LinearLayout.LayoutParams(pxX(428), -1))
 
-        main.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
-        main.addView(text("ALPS COCKPIT     •     MAP & MEDIA", 9f, Color.rgb(105, 122, 147), true).apply {
+        val rightColumn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        // Live embedded Neshan/MapLibre map with a clear action to open the Neshan app.
+        val mapPanel = FrameLayout(this).apply {
+            background = panelBackground()
+            clipToOutline = true
+        }
+        dashboardMapFrame = mapPanel
+        mapView.isClickable = true
+        mapPanel.addView(mapView, FrameLayout.LayoutParams(-1, -1))
+
+        val destinationCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(Color.argb(230, 28, 28, 30))
+                cornerRadius = pxX(20).toFloat()
+            }
+            setPadding(pxX(18), pxY(10), pxX(18), pxY(10))
+        }
+        destinationCard.addView(text("مقصد", 14f * sx, Color.rgb(161, 161, 170)))
+        destinationCard.addView(text("برای مسیریابی لمس کن", 21f * sx, Color.WHITE, true))
+        mapPanel.addView(destinationCard, FrameLayout.LayoutParams(-2, pxY(76), Gravity.TOP or Gravity.END).apply {
+            rightMargin = pxX(20)
+            topMargin = pxY(20)
+        })
+
+        val openNeshanButton = TextView(this).apply {
+            text = "نقشه نشان  ↗"
+            textSize = 15f * sx
+            setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
-        }, LinearLayout.LayoutParams(-1, dp(19)).apply { topMargin = dp(5) })
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(10, 132, 255))
+                cornerRadius = pxX(18).toFloat()
+            }
+            isClickable = true
+            setOnClickListener { openNeshan() }
+        }
+        mapPanel.addView(openNeshanButton, FrameLayout.LayoutParams(pxX(150), pxY(52), Gravity.BOTTOM or Gravity.END).apply {
+            rightMargin = pxX(18)
+            bottomMargin = pxY(18)
+        })
+        val mapCaption = text("نقشه نشان  •  موقعیت زنده", 12f * sx, Color.WHITE, true).apply {
+            background = GradientDrawable().apply {
+                setColor(Color.argb(205, 28, 28, 30))
+                cornerRadius = pxX(12).toFloat()
+            }
+            setPadding(pxX(12), 0, pxX(12), 0)
+        }
+        mapPanel.addView(mapCaption, FrameLayout.LayoutParams(-2, pxY(34), Gravity.BOTTOM or Gravity.START).apply {
+            leftMargin = pxX(18)
+            bottomMargin = pxY(20)
+        })
+        rightColumn.addView(mapPanel, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        val lowerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+
+        // Four app shortcuts, matching the supplied reference's icon grid.
+        val appPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = panelBackground()
+            setPadding(pxX(18), pxY(16), pxX(18), pxY(14))
+        }
+        val appGrid = android.widget.GridLayout(this).apply {
+            columnCount = 2
+            rowCount = 2
+            alignmentMode = android.widget.GridLayout.ALIGN_BOUNDS
+            useDefaultMargins = false
+        }
+        fun appShortcut(symbol: String, label: String, color: Int, click: () -> Unit) {
+            val tile = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { click() }
+            }
+            val icon = TextView(this).apply {
+                text = symbol
+                textSize = 36f * sx
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    setColor(color)
+                    cornerRadius = pxX(24).toFloat()
+                }
+            }
+            tile.addView(icon, LinearLayout.LayoutParams(pxX(84), pxY(84)))
+            tile.addView(text(label, 15f * sx, Color.WHITE).apply { gravity = Gravity.CENTER },
+                LinearLayout.LayoutParams(-1, pxY(30)).apply { topMargin = pxY(5) })
+            appGrid.addView(tile, android.widget.GridLayout.LayoutParams().apply {
+                width = pxX(112)
+                height = pxY(145)
+                setMargins(pxX(4), pxY(2), pxX(4), pxY(2))
+            })
+        }
+        appShortcut("☀", "آب‌وهوا", Color.rgb(255, 159, 10)) { showWeather() }
+        appShortcut("▶", "ویدیو", Color.rgb(94, 92, 230)) { openVideoGallery() }
+        appShortcut("◉", "خودرو", Color.rgb(100, 210, 255)) { showApps() }
+        appShortcut("⚙", "تنظیمات", Color.rgb(142, 142, 147)) { openSettings() }
+        appPanel.addView(appGrid)
+
+        val pageDots = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        repeat(3) { index ->
+            val dot = View(this).apply {
+                background = GradientDrawable().apply {
+                    setColor(if (index == 0) Color.WHITE else Color.rgb(99, 99, 102))
+                    cornerRadius = pxX(4).toFloat()
+                }
+            }
+            pageDots.addView(dot, LinearLayout.LayoutParams(pxX(8), pxY(8)).apply {
+                leftMargin = pxX(4); rightMargin = pxX(4)
+            })
+        }
+        appPanel.addView(pageDots, LinearLayout.LayoutParams(-1, pxY(18)).apply { topMargin = pxY(4) })
+        lowerRow.addView(appPanel, LinearLayout.LayoutParams(pxX(300), -1))
+
+        val quickPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = panelBackground()
+            setPadding(pxX(24), pxY(20), pxX(24), pxY(18))
+        }
+
+        val boostHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        boostHeader.addView(text("تقویت صدا", 18f * sx, Color.WHITE, true),
+            LinearLayout.LayoutParams(0, pxY(30), 1f))
+        boostHeader.addView(text("بدون اکو و ریورب", 13f * sx, Color.rgb(161, 161, 170)))
+        quickPanel.addView(boostHeader)
+        val boostSeek = SeekBar(this).apply {
+            max = 100
+            progress = audioBoosterDialog.dashboardGain()
+            progressTintList = android.content.res.ColorStateList.valueOf(Color.rgb(10, 132, 255))
+            thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) audioBoosterDialog.setDashboardGain(progress)
+                }
+            })
+        }
+        quickPanel.addView(boostSeek, LinearLayout.LayoutParams(-1, pxY(44)))
+
+        quickPanel.addView(text("روشنایی صفحه", 18f * sx, Color.WHITE, true),
+            LinearLayout.LayoutParams(-1, pxY(30)).apply { topMargin = pxY(8) })
+        val brightness = SeekBar(this).apply {
+            max = 100
+            progress = try {
+                Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS).coerceIn(0, 255) * 100 / 255
+            } catch (_: Exception) { 75 }
+            progressTintList = android.content.res.ColorStateList.valueOf(Color.rgb(10, 132, 255))
+            thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                    if (Build.VERSION.SDK_INT >= 23 && !Settings.System.canWrite(this@MainActivity)) {
+                        launchSafely(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                            Uri.parse("package:" + packageName)), "دسترسی تغییر روشنایی در دسترس نیست")
+                    } else {
+                        try {
+                            Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE,
+                                Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
+                            Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS,
+                                (progress.coerceIn(1, 100) * 255) / 100)
+                        } catch (_: Exception) {
+                            Toast.makeText(this@MainActivity, "تغییر روشنایی مجاز نیست", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {}
+            })
+        }
+        quickPanel.addView(brightness, LinearLayout.LayoutParams(-1, pxY(44)))
+
+        val quickGrid = android.widget.GridLayout(this).apply { columnCount = 2; rowCount = 2 }
+        fun quickButton(label: String, active: Boolean, click: () -> Unit) {
+            val button = TextView(this).apply {
+                text = label
+                textSize = 15f * sx
+                setTypeface(persianTypeface, Typeface.BOLD)
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    setColor(if (active) Color.rgb(10, 132, 255) else Color.rgb(44, 44, 46))
+                    cornerRadius = pxX(20).toFloat()
+                }
+                isClickable = true
+                setOnClickListener { click() }
+            }
+            quickGrid.addView(button, android.widget.GridLayout.LayoutParams().apply {
+                width = pxX(135)
+                height = pxY(56)
+                setMargins(pxX(3), pxY(5), pxX(3), pxY(5))
+            })
+        }
+        quickButton("وای‌فای", true) { launchSafely(Intent(Settings.ACTION_WIFI_SETTINGS)) }
+        quickButton("بلوتوث", false) { launchSafely(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+        quickButton("هات‌اسپات", true) { launchSafely(Intent(Settings.ACTION_WIRELESS_SETTINGS)) }
+        quickButton("حالت شب", false) { launchSafely(Intent(Settings.ACTION_NIGHT_DISPLAY_SETTINGS)) }
+        quickPanel.addView(quickGrid, LinearLayout.LayoutParams(-1, 0, 1f))
+        lowerRow.addView(quickPanel, LinearLayout.LayoutParams(0, -1, 1f).apply {
+            leftMargin = pxX(24)
+        })
+
+        rightColumn.addView(lowerRow, LinearLayout.LayoutParams(-1, pxY(360)).apply {
+            topMargin = pxY(24)
+        })
+        main.addView(rightColumn, LinearLayout.LayoutParams(0, -1, 1f).apply {
+            leftMargin = pxX(24)
+        })
         root.addView(main, LinearLayout.LayoutParams(0, -1, 1f))
 
         setAnimatedContent(root)
@@ -1067,7 +1310,7 @@ class MainActivity : Activity() {
     }
 
     private fun showMap() {
-        showDashboard(1)
+        showCarPlayDashboard()
         openNeshan()
     }
 
@@ -1127,7 +1370,7 @@ class MainActivity : Activity() {
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
                     userSeeking = false
                     val duration = lastDuration
-                    if (duration > 0) activeController?.transportControls?.seekTo((this@MainActivity.seekBar.progress / 1000.0 * duration).toLong())
+                    seekToPosition(this@MainActivity.seekBar.progress)
                 }
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     if (fromUser && lastDuration > 0) elapsedView.text = formatTime((progress / 1000.0 * lastDuration).toLong())
@@ -1178,6 +1421,8 @@ class MainActivity : Activity() {
         if (!notificationAccessEnabled()) {
             updateAppsNowPlaying(null, null, null)
             activeController = null
+            lastDuration = 0L
+            userSeeking = false
             dashboardSeek?.isEnabled = false
             if (::seekBar.isInitialized) seekBar.isEnabled = false
             if (::trackTitle.isInitialized) {
@@ -1228,8 +1473,8 @@ class MainActivity : Activity() {
                 dashboardPlayButton?.text = if (playing) "Ⅱ" else "▶"
                 dashboardCover?.let { if (art != null) it.setImageDrawable(BitmapDrawable(resources, art)) else it.setImageDrawable(rounded(panel2, 24)) }
                 val positionNow = currentPlaybackPosition(selected?.playbackState)
-                dashboardElapsed?.text = formatTime(positionNow)
-                dashboardDuration?.text = formatTime(metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L)
+                dashboardElapsed?.text = persianDigits(formatTime(positionNow))
+                dashboardDuration?.text = persianDigits(formatTime(metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L))
                 dashboardSeek?.isEnabled = lastDuration > 0L
                 if (!userSeeking) dashboardSeek?.progress = if (lastDuration > 0) ((positionNow.toDouble() / lastDuration) * 1000.0).toInt().coerceIn(0,1000) else 0
             }
@@ -1260,6 +1505,31 @@ class MainActivity : Activity() {
             }
         } catch (_: Exception) {
             // A media app may disappear while the session list is being refreshed.
+        }
+    }
+
+    private fun seekToPosition(progress: Int) {
+        val duration = lastDuration
+        val controller = activeController
+        if (duration <= 0L || controller == null) {
+            Toast.makeText(this, "موقعیت آهنگ در دسترس نیست", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val target = ((progress.coerceIn(0, 1000) / 1000.0) * duration)
+            .toLong().coerceIn(0L, duration)
+        try {
+            // Some Bluetooth/head-unit sessions omit ACTION_SEEK_TO even though
+            // their transport controls accept seekTo, so send the command rather
+            // than disabling the user's seek gesture based only on the action bit.
+            controller.transportControls.seekTo(target)
+            handler.postDelayed({
+                if (!isFinishing) {
+                    refreshMedia()
+                    updatePosition()
+                }
+            }, 280L)
+        } catch (_: Exception) {
+            Toast.makeText(this, "این پخش‌کننده از جلو/عقب بردن آهنگ پشتیبانی نمی‌کند", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1351,6 +1621,14 @@ class MainActivity : Activity() {
         } }.joinToString("")
     }
 
+    private fun persianDigits(value: String): String = value.map { ch ->
+        when (ch) {
+            '0' -> '۰'; '1' -> '۱'; '2' -> '۲'; '3' -> '۳'; '4' -> '۴'
+            '5' -> '۵'; '6' -> '۶'; '7' -> '۷'; '8' -> '۸'; '9' -> '۹'
+            else -> ch
+        }
+    }.joinToString("")
+
     private fun formatTime(milliseconds: Long): String {
 
         if (milliseconds <= 0) return "0:00"
@@ -1375,8 +1653,38 @@ class MainActivity : Activity() {
         val grid = findViewById<RecyclerView>(R.id.appGrid)
         grid.layoutManager = GridLayoutManager(this, 5)
         val allApps = loadApps()
-        val appAdapter = AppAdapter(allApps.toMutableList()) { app -> launchApp(app) }
+        lateinit var appAdapter: AppAdapter
+        appAdapter = AppAdapter(
+            allApps.toMutableList(),
+            onClick = { app -> launchApp(app) },
+            onLongClick = { app ->
+                if (!app.packageName.startsWith("alps.internal.")) {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        val favorite = settingsStore.toggleFavorite(app.packageName)
+                        val favorites = settingsStore.favoritePackages()
+                        runOnUiThread {
+                            appAdapter.submitItems(allApps.sortedWith(
+                                compareByDescending<AppItem> { it.packageName in favorites }
+                                    .thenBy { it.label.lowercase(Locale.ROOT) }
+                            ))
+                            Toast.makeText(this@MainActivity,
+                                if (favorite) "به علاقه‌مندی‌ها اضافه شد" else "از علاقه‌مندی‌ها حذف شد",
+                                Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+        )
         grid.adapter = appAdapter
+        CoroutineScope(Dispatchers.IO).launch {
+            val favorites = settingsStore.favoritePackages()
+            runOnUiThread {
+                if (!isFinishing) appAdapter.submitItems(allApps.sortedWith(
+                    compareByDescending<AppItem> { it.packageName in favorites }
+                        .thenBy { it.label.lowercase(Locale.ROOT) }
+                ))
+            }
+        }
         val search = findViewById<EditText>(R.id.appSearch)
         val emptyState = findViewById<TextView>(R.id.appEmpty)
         search.addTextChangedListener(object : android.text.TextWatcher {
@@ -1441,7 +1749,143 @@ class MainActivity : Activity() {
     }
 
     private fun openSettings() {
-        startActivity(Intent(Settings.ACTION_SETTINGS))
+        val options = arrayOf("تنظیمات سیستم", "هواشناسی", "اعلان‌ها", "برنامه‌های اخیر",
+            "Wi-Fi", "Bluetooth", "کنترل روشنایی", "Hotspot")
+        android.app.AlertDialog.Builder(this)
+            .setTitle("تنظیمات ALPS")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> launchSafely(Intent(Settings.ACTION_SETTINGS))
+                    1 -> showWeather()
+                    2 -> showNotifications()
+                    3 -> showRecentApps()
+                    4 -> launchSafely(Intent(Settings.ACTION_WIFI_SETTINGS))
+                    5 -> launchSafely(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                    6 -> openBrightnessControl()
+                    7 -> launchSafely(Intent(Settings.ACTION_WIRELESS_SETTINGS))
+                }
+            }
+            .setNegativeButton("بستن", null)
+            .show()
+    }
+
+    private fun openBrightnessControl() {
+        if (Build.VERSION.SDK_INT >= 23 && !Settings.System.canWrite(this)) {
+            launchSafely(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:" + packageName)),
+                "دسترسی تغییر روشنایی در دسترس نیست")
+            return
+        }
+        val current = try {
+            Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS).coerceIn(5, 255)
+        } catch (_: Exception) { 180 }
+        val seek = SeekBar(this).apply {
+            max = 100
+            progress = (current * 100 / 255).coerceIn(5, 100)
+        }
+        android.app.AlertDialog.Builder(this).setTitle("روشنایی صفحه")
+            .setView(seek)
+            .setPositiveButton("اعمال") { _, _ ->
+                try {
+                    Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE,
+                        Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
+                    Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS,
+                        (seek.progress.coerceIn(5, 100) * 255) / 100)
+                } catch (_: Exception) {
+                    Toast.makeText(this, "تغییر روشنایی مجاز نیست", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("انصراف", null).show()
+    }
+
+    private fun showNotifications() {
+        val items = MediaAccessService.activeItems
+        if (items.isEmpty()) {
+            android.app.AlertDialog.Builder(this).setTitle("اعلان‌ها")
+                .setMessage("اعلان فعالی برای نمایش وجود ندارد یا دسترسی اعلان‌ها فعال نیست.")
+                .setPositiveButton("باشه", null).show()
+            return
+        }
+        val labels = items.map { row ->
+            if (row.text.isBlank()) row.title else row.title + "\n" + row.text
+        }.toTypedArray()
+        android.app.AlertDialog.Builder(this).setTitle("اعلان‌ها")
+            .setItems(labels) { _, index ->
+                try { items[index].contentIntent?.send() } catch (_: Exception) {}
+            }
+            .setNegativeButton("بستن", null).show()
+    }
+
+    private fun recordRecentApp(packageName: String) {
+        if (packageName.startsWith("alps.internal.")) return
+        val prefs = getSharedPreferences("alps_recent_apps", MODE_PRIVATE)
+        val previous = prefs.getString("packages", "").orEmpty().split("|").filter { it.isNotBlank() }
+        val updated = (listOf(packageName) + previous.filterNot { it == packageName }).take(12)
+        prefs.edit().putString("packages", updated.joinToString("|")).apply()
+    }
+
+    private fun showRecentApps() {
+        val packages = getSharedPreferences("alps_recent_apps", MODE_PRIVATE)
+            .getString("packages", "").orEmpty().split("|").filter { it.isNotBlank() }
+        val available = packages.mapNotNull { pkg ->
+            try { pkg to packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }
+            catch (_: Exception) { null }
+        }
+        if (available.isEmpty()) {
+            android.app.AlertDialog.Builder(this).setTitle("برنامه‌های اخیر")
+                .setMessage("هنوز برنامه‌ای از لانچر اجرا نشده است.")
+                .setPositiveButton("باشه", null).show()
+            return
+        }
+        android.app.AlertDialog.Builder(this).setTitle("برنامه‌های اخیر")
+            .setItems(available.map { it.second }.toTypedArray()) { _, index ->
+                val intent = packageManager.getLaunchIntentForPackage(available[index].first)
+                if (intent != null) launchSafely(intent)
+            }.setNegativeButton("بستن", null).show()
+    }
+
+    private fun showWeather() {
+        val location = lastLocation ?: try {
+            val manager = getSystemService(LOCATION_SERVICE) as LocationManager
+            val fine = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            val coarse = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            if (fine || coarse) manager.getLastKnownLocation(
+                if (fine && manager.isProviderEnabled(LocationManager.GPS_PROVIDER))
+                    LocationManager.GPS_PROVIDER else LocationManager.NETWORK_PROVIDER
+            ) else null
+        } catch (_: Exception) { null }
+        if (location == null) {
+            Toast.makeText(this, "برای دریافت هواشناسی ابتدا دسترسی موقعیت مکانی را فعال کن", Toast.LENGTH_LONG).show()
+            startLocationUpdates()
+            return
+        }
+        val message = text("در حال دریافت وضعیت آب‌وهوا…", 16f, white)
+        val dialog = android.app.AlertDialog.Builder(this).setTitle("هواشناسی")
+            .setView(message).setPositiveButton("بستن", null).create()
+        dialog.show()
+        Thread {
+            val result = try {
+                val endpoint = "https://api.open-meteo.com/v1/forecast?latitude=" + location.latitude +
+                    "&longitude=" + location.longitude +
+                    "&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"
+                val json = java.net.URL(endpoint).openConnection().apply {
+                    connectTimeout = 7000; readTimeout = 7000
+                }.getInputStream().bufferedReader().use { it.readText() }
+                val current = org.json.JSONObject(json).getJSONObject("current")
+                val temperature = current.optDouble("temperature_2m")
+                val humidity = current.optInt("relative_humidity_2m")
+                val wind = current.optDouble("wind_speed_10m")
+                val code = current.optInt("weather_code")
+                val condition = when (code) {
+                    0 -> "صاف"; 1, 2 -> "کمی ابری"; 3 -> "ابری"; 45, 48 -> "مه‌آلود"
+                    51, 53, 55, 61, 63, 65, 80, 81, 82 -> "بارانی"
+                    71, 73, 75, 77, 85, 86 -> "برفی"; 95, 96, 99 -> "رعدوبرق"
+                    else -> "شرایط متغیر"
+                }
+                "دما: " + temperature + "°C\nوضعیت: " + condition +
+                    "\nرطوبت: " + humidity + "٪\nسرعت باد: " + wind + " km/h"
+            } catch (_: Exception) { "دریافت اطلاعات هواشناسی ممکن نشد. اتصال اینترنت را بررسی کن." }
+            runOnUiThread { if (!isFinishing && dialog.isShowing) message.text = result }
+        }.start()
     }
 
     override fun onStart() { super.onStart(); mapView.onStart() }

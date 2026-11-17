@@ -37,3 +37,10 @@ of their respective owners.
 - License: Unsplash License — https://unsplash.com/license
 - The image is used as a background asset. Unsplash permits free commercial and
   non-commercial use subject to its license restrictions; attribution is appreciated.
+
+
+## Vazirmatn Persian typeface
+- Project: https://github.com/rastikerdar/vazirmatn
+- Version: v33.003
+- File: `Vazirmatn-Regular.ttf`
+- License: SIL Open Font License 1.1 (OFL-1.1). The build packages the upstream `OFL.txt` alongside the font.

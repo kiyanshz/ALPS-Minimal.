@@ -16,7 +16,8 @@ data class AppItem(val label: String, val icon: Drawable, val packageName: Strin
 
 class AppAdapter(
     private val items: MutableList<AppItem>,
-    private val onClick: (AppItem) -> Unit
+    private val onClick: (AppItem) -> Unit,
+    private val onLongClick: ((AppItem) -> Unit)? = null
 ) : RecyclerView.Adapter<AppAdapter.Holder>() {
 
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
@@ -35,6 +36,10 @@ class AppAdapter(
         holder.icon.clipToOutline = true
         holder.label.text = item.label
         holder.itemView.setOnClickListener { onClick(item) }
+        holder.itemView.setOnLongClickListener {
+            onLongClick?.invoke(item)
+            onLongClick != null
+        }
         holder.itemView.setOnTouchListener { view, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> view.animate().scaleX(0.92f).scaleY(0.92f).setDuration(90).start()
