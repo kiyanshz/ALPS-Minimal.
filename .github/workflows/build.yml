@@ -106,6 +106,7 @@ jobs:
           curl --fail --location --retry 3 --retry-delay 2 "https://images.unsplash.com/photo-1754806424644-091920f33989?fm=jpg&fit=crop&w=2560&h=1440&q=88" -o "$ASSET_DIR/alps_wallpaper.jpg"
           mkdir -p "extracted/ALPS-Minimal/app/src/main/assets/fonts"
           curl --fail --location --retry 3 --retry-delay 2 "https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/ttf/Vazirmatn-Regular.ttf" -o "extracted/ALPS-Minimal/app/src/main/assets/fonts/Vazirmatn-Regular.ttf"
+          curl --fail --location --retry 3 --retry-delay 2 "https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/OFL.txt" -o "extracted/ALPS-Minimal/app/src/main/assets/fonts/OFL.txt"
           test -s "extracted/ALPS-Minimal/app/src/main/assets/fonts/Vazirmatn-Regular.ttf"
           mkdir -p "extracted/ALPS-Minimal/app/src/main/assets"
           cp overrides/THIRD_PARTY_NOTICES.md "extracted/ALPS-Minimal/app/src/main/assets/THIRD_PARTY_NOTICES.md"
