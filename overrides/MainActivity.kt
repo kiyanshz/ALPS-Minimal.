@@ -105,7 +105,24 @@ private class AudioBoosterDialog(
     private val names = arrayOf("Off", "Low", "Medium", "High")
 
     fun restore() {
-        apply(prefs.getInt("level", 0).coerceIn(0, levels.lastIndex))
+        val savedGain = prefs.getInt("dashboard_gain", -1)
+        if (savedGain >= 0) setDashboardGain(savedGain)
+        else apply(prefs.getInt("level", 0).coerceIn(0, levels.lastIndex))
+    }
+
+    fun dashboardGain(): Int =
+        prefs.getInt("dashboard_gain", (levels[prefs.getInt("level", 2).coerceIn(0, levels.lastIndex)] / 15).coerceIn(0, 100))
+
+    fun setDashboardGain(progress: Int) {
+        val value = progress.coerceIn(0, 100)
+        if (value == 0) booster.disable() else booster.enable(value * 15)
+        val legacyLevel = when {
+            value == 0 -> 0
+            value < 35 -> 1
+            value < 70 -> 2
+            else -> 3
+        }
+        prefs.edit().putInt("dashboard_gain", value).putInt("level", legacyLevel).apply()
     }
 
     fun show() {
@@ -149,7 +166,7 @@ private class AudioBoosterDialog(
             booster.isOn -> booster.setGain(levels[level])
             else -> booster.enable(levels[level])
         }
-        prefs.edit().putInt("level", level).apply()
+        prefs.edit().putInt("level", level).putInt("dashboard_gain", levels[level] / 15).apply()
     }
 }
 
@@ -1289,7 +1306,7 @@ class MainActivity : Activity() {
     }
 
     private fun showMap() {
-        showDashboard(1)
+        showCarPlayDashboard()
         openNeshan()
     }
 
@@ -1599,6 +1616,14 @@ class MainActivity : Activity() {
             else -> ch
         } }.joinToString("")
     }
+
+    private fun persianDigits(value: String): String = value.map { ch ->
+        when (ch) {
+            '0' -> '۰'; '1' -> '۱'; '2' -> '۲'; '3' -> '۳'; '4' -> '۴'
+            '5' -> '۵'; '6' -> '۶'; '7' -> '۷'; '8' -> '۸'; '9' -> '۹'
+            else -> ch
+        }
+    }.joinToString("")
 
     private fun formatTime(milliseconds: Long): String {
 
